@@ -1,0 +1,58 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=Extension
+ClassGuid={e2f84ce7-8efa-411c-aa69-97454ca4cb57}
+Provider=%ProviderName%
+ExtensionId={20c2709e-e4ab-4a6c-a436-8a6bbdbf35aa}
+DriverVer=08/07/2026,1.0.0.0
+CatalogFile=MiRemoteHidFilter.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir=13
+
+[SourceDisksNames]
+1=%DiskName%,,,""
+
+[SourceDisksFiles]
+MiRemoteHidFilter.sys=1
+
+[Manufacturer]
+%ProviderName%=Models,NTamd64.10.0...18362
+
+[Models.NTamd64.10.0...18362]
+%DeviceDesc%=MiRemoteFilter_Install, HID\{00001812-0000-1000-8000-00805f9b34fb}_Dev_VID&012717_PID&32b8_REV&00a4
+
+[MiRemoteFilter_Install]
+CopyFiles=MiRemoteFilter_CopyFiles
+
+[MiRemoteFilter_Install.Filters]
+AddFilter=MiRemoteHidFilter,,MiRemoteLowerFilter
+
+[MiRemoteLowerFilter]
+FilterPosition=Lower
+
+[MiRemoteFilter_Install.Services]
+AddService=MiRemoteHidFilter,,MiRemoteFilter_Service
+
+[MiRemoteFilter_Service]
+DisplayName=%ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\MiRemoteHidFilter.sys
+
+[MiRemoteFilter_Install.Wdf]
+KmdfService=MiRemoteHidFilter,MiRemoteFilter_Wdf
+
+[MiRemoteFilter_Wdf]
+KmdfLibraryVersion=1.15
+
+[MiRemoteFilter_CopyFiles]
+MiRemoteHidFilter.sys
+
+[Strings]
+ProviderName="RemoteMapper"
+DeviceDesc="Xiaomi Remote HID Usage Fix"
+ServiceDesc="Xiaomi Remote HID Lower Filter"
+DiskName="RemoteMapper Driver Package"

@@ -10,7 +10,7 @@
 ## GATT 服务全景
 | Service UUID | 身份 | 备注 |
 |---|---|---|
-| 1812 (HID) | 键盘/按键 | Windows HID 栈占用 (AccessDenied)，应用层访问不到，但按键映射走 RawInput |
+| 1812 (HID) | 键盘/按键 | Windows HID 栈占用 (AccessDenied)。9 个普通键可见；返回/音量±因非标准 Keyboard Page usage 被 `kbdhid.sys` 丢弃，最终由设备专属 lower filter 修复 |
 | **ab5e0001** | **ATVV 语音** | **核心目标，完全可访问** |
 | 8a7a0001 | 小米私有 | 备用 |
 | 180f/180a/1800/1801 | 电池/设备信息/通用访问/通用属性 | 标准 |
@@ -81,7 +81,9 @@ CTL (ab5e0004 Notify, 遥控器→主机):
 - [x] Phase 1: 握手验证 (GET_CAPS/MIC_OPEN/音频流) ✅
 - [x] Phase 2: IMA ADPCM 解码 → 16bit PCM ✅ (headerless 连续解码, CleanDecode.cs)
 - [x] Phase 3: 实时解码管道 (BLE notify → ADPCM 解码 → VB-Cable) ✅ (src\RemoteMic.cs)
-- [x] Phase 4: 联动语音输入法 (按住录入) ✅ (2025-08-07 完整跑通)
+- [x] Phase 4: 联动语音输入法 (按住录入) ✅
+- [x] Phase 5: HID 三键修复驱动（音量±/返回 -> F13/F14/F15）✅
+- [x] Phase 6: 通用 KeyMapper（配置文件驱动的全局组合键映射）✅
 
 ---
 
@@ -101,10 +103,10 @@ CTL (ab5e0004 Notify, 遥控器→主机):
 
 ### 关键问题与解决方案 (Phase 4 排错核心)
 
-#### 问题1: 热键注入需前台运行
-- 现象: PowerShell `Start-Process -RedirectStandardOutput` 后台启动时 SendInput 无效
-- 原因: stdout 重定向改变进程桌面/console 上下文, SendInput 失效
-- 解决: **直接前台运行 RemoteMic.exe** (不要重定向)
+#### 问题1: 后台启动方式
+- 早期使用 `Start-Process -RedirectStandardOutput` 调试时曾出现 SendInput 无效，因此一度误判为“必须前台运行”
+- 最终验证：窗口可见性不影响钩子或 SendInput；关键是进程运行在当前交互用户会话，并由内部 pump 线程维护消息循环
+- 当前方案：前台调试用 `debug.bat`；后台常驻用 `start.vbs` 隐藏窗口启动，日志由程序自身写入 `RemoteMic.log`，不要用 PowerShell 重定向 stdout 代替
 
 #### 问题2: 注入线程上下文
 - 怀疑过 WinRT 回调线程上下文问题, 实测可排除
@@ -152,14 +154,85 @@ RemoteMic.exe        # 前台调试用；后台用 start.vbs（隐藏窗口，�
 ```
 
 ### 编译命令
-```bash
-C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe /nologo /target:exe /platform:x64 \
-  /r:C:\\Windows\\System32\\WinMetadata\\Windows.Devices.winmd \
-  /r:C:\\Windows\\System32\\WinMetadata\\Windows.Foundation.winmd \
-  /r:C:\\Windows\\System32\\WinMetadata\\Windows.Storage.winmd \
-  /r:C:\\Windows\\Microsoft.NET\\assembly\\GAC_MSIL\\System.Runtime\\v4.0_4.0.0.0__b03f5f7f11d50a3a\\System.Runtime.dll \
-  /out:RemoteMic.exe src\RemoteMic.cs
+
+```bat
+build.bat
 ```
+
+脚本会编译 `RemoteMic.cs`、`KeyMapConfig.cs`、`KeyMapEngine.cs`、`KeyMapper.cs` 和 `KeyComboSender.cs`，并写出 `RemoteMic.exe`。
+
+## Phase 5：HID 三键修复（最终结论）
+
+### 问题
+
+遥控器把三个特殊键放在 HID Keyboard Page：
+
+```text
+音量加  usage 0x80
+音量减  usage 0x81
+返回    usage 0xF1
+```
+
+Android `getevent` 能看到它们，但 Windows 用户态的低级键盘钩子、Raw Input、APPCOMMAND 和 HID 设备读取均没有事件。根因是 `kbdhid.sys` 不为这些 Keyboard Page usage 生成扫描码/VK。
+
+### 设备报告
+
+使用只读 preparsed metadata 工具确认：
+
+- Top-level collection：`0x0001/0x0006`（Keyboard）
+- `InputReportByteLength = 121`
+- Keyboard Report ID：`0x01`
+
+KMDF lower filter 的一次性内核诊断确认真实报告为：
+
+```text
+方向上  01 00 00 52 00 ...
+音量加  01 00 00 80 00 ...
+音量减  01 00 00 81 00 ...
+返回    01 00 00 F1 00 ...
+```
+
+usage 位于 `report[3]`，不是 HID parser 合成报告时看起来的 `report[1]`。这一差异是调试中的关键结论。
+
+### 最终实现
+
+`driver/MiRemoteHidFilter` 是精确绑定 VID/PID/REV 的 KMDF device lower filter：
+
+```text
+kbdclass -> kbdhid -> MiRemoteHidFilter -> mshidumdf
+```
+
+它只拦截 `IRP_MJ_READ` 的完成路径，并等长修改 `report[3]`：
+
+```text
+0x80 -> 0x68 (F13 / VK 0x7C)
+0x81 -> 0x69 (F14 / VK 0x7D)
+0xF1 -> 0x6A (F15 / VK 0x7E)
+```
+
+最终实机验收：方向上、F13、F14、F15 均 PASS；设备状态 `CM_PROB_NONE`，HVCI/内存完整性保持开启。当前包是 WDK 测试签名包，需要 TESTSIGNING。安装、回滚和正式签名限制见 `driver/MiRemoteHidFilter/README.md`。
+
+## Phase 6：通用 KeyMapper
+
+`RemoteMic.exe` 启动时读取根目录 `keymap.txt`。配置解析、按键状态机和 Windows hook/SendInput 分离：
+
+- `KeyMapConfig`：解析源 VK 与目标组合，支持 A-Z、0-9、F1-F24、修饰键、方向键和常用 OEM 键
+- `KeyMapEngine`：跳过空映射和同键映射；维护 held set，吞掉按住重复但只注入一次 down；up 时生成一次释放动作；忽略 injected event 防递归
+- `F5Blocker`：原有全局低级钩子先吞 F5，再把其他物理键交给 KeyMapper
+- `keyworker`：hook 回调只入队；worker 用单次 `SendInput` 按顺序按下组合、逆序释放
+
+当前配置：
+
+```text
+电源键         -> ESC
+返回键 (F15) -> LCTRL+Z
+菜单键         -> LALT+TAB
+直播键         -> LALT+X
+```
+
+四个方向键配置为自身，状态机自动放行。音量±目前只由驱动修复为 F13/F14，目标映射留空。
+
+自动测试覆盖：配置解析、同键放行、重复 down 去重、up 释放、注入事件放行，以及真实 `SendInput` 的 `Ctrl down -> Z down -> Z up -> Ctrl up` 顺序。
 
 ## 技术栈约束
 - 编译: .NET Framework 4.8 csc.exe (无 .NET SDK, 有 .NET 8 runtime)

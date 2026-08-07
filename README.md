@@ -6,6 +6,16 @@
 **按住遥控器语音键** → 自动唤起微信输入法语音录入 + 把遥控器麦克风的音频送进去；
 **松开** → 结束录入，恢复系统原默认麦克风。
 
+项目还包含一个设备专属 HID lower filter，用来修复 Windows 会丢弃的三个按键：
+
+```text
+音量加 -> F13
+音量减 -> F14
+返回键 -> F15
+```
+
+驱动源码、安装和回滚说明见 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。`RemoteMic.exe` 启动时读取 `keymap.txt`，提供全局源键→组合键映射。当前配置：电源→Esc、返回→Ctrl+Z、菜单→Alt+Tab、直播→Alt+X；四个方向键是同键映射，因此自动放行、保持原行为。
+
 ---
 
 ## 一、前置准备（只需做一次）
@@ -90,7 +100,29 @@
 
 ---
 
-## 四、注意事项
+## 四、HID 三键修复（可选）
+
+遥控器把音量加、音量减、返回放在 HID Keyboard Page 的 `0x80/0x81/0xF1` usage 上，Windows `kbdhid.sys` 默认不会生成按键事件。`driver/MiRemoteHidFilter` 在 `kbdhid` 解析前把它们等长改写为 F13/F14/F15。
+
+实机验收：方向上、F13、F14、F15 全部通过；HVCI/内存完整性可以保持开启。当前提交中的包使用 WDK 测试证书，因此需要 TESTSIGNING。详细步骤与回滚方式只维护在驱动目录的 README 中。
+
+---
+
+## 五、全局按键映射
+
+`keymap.txt` 每行格式：
+
+```text
+<键名> = <源 VK> -> <目标组合>
+```
+
+目标组合使用 `+` 连接，例如 `LCTRL+Z`、`LALT+TAB`。留空表示不映射；目标只有一个键且与源 VK 相同也会自动放行。配置在 RemoteMic 启动时加载，修改后需重启 RemoteMic。
+
+映射通过同一个全局低级键盘钩子实现：源键 down/up 被吞掉，组合按配置顺序按下、逆序释放；程序自身注入事件会被忽略，避免递归。
+
+---
+
+## 六、注意事项
 
 - ⚠️ **遥控器需保持唤醒**：遥控器闲置会休眠，按任意键唤醒后再用语音键
 - ⚠️ 一次只能连一个程序。退出 RemoteMic 后遥控器语音键才回到普通 F5 功能
@@ -99,7 +131,7 @@
 
 ---
 
-## 五、故障排查
+## 七、故障排查
 
 | 现象 | 排查 |
 |------|------|
@@ -123,7 +155,7 @@ tools\KeySniffer.exe
 
 ---
 
-## 六、环境变量（可选，默认无需设置）
+## 八、环境变量（可选，默认无需设置）
 
 | 变量 | 作用 | 默认 |
 |------|------|------|
@@ -133,11 +165,10 @@ tools\KeySniffer.exe
 
 ---
 
-## 七、文件说明
+## 九、文件说明
 
-| 文件 | 说明 |
-|------|------|
 运行入口（根目录）：
+
 | 文件 | 说明 |
 |------|------|
 | `RemoteMic.exe` | **主程序**（BLE 连接 + 解码 + 推流 + 热键 + 设备切换）；源码 `src\RemoteMic.cs` |
@@ -147,6 +178,7 @@ tools\KeySniffer.exe
 | `debug.bat` | 前台启动脚本（调试看实时输出） |
 
 源码（`src\`）与诊断工具（`tools\`）：
+
 | 文件 | 说明 |
 |------|------|
 | `src\RemoteMic.cs` | 主程序源码 |
@@ -155,10 +187,26 @@ tools\KeySniffer.exe
 | `src\CaptureCable.cs` → `tools\CaptureCable.exe` | 诊断：录制 CABLE Output 验证音频回路 |
 
 文档与归档：
+
 | 文件 | 说明 |
 |------|------|
 | `NOTES.md` | 完整技术笔记（协议逆向、排错历程） |
+| `driver/MiRemoteHidFilter/` | 三个特殊键的 KMDF lower filter、测试签名包与安装/回滚脚本 |
+| `keymap.txt` | 全局按键映射配置；RemoteMic 启动时读取 |
+| `tools/HidCaps.*` | 只读 HID descriptor/preparsed metadata 验证工具 |
+| `tools/RemoteKeyTest.*` | 方向上 + F13/F14/F15 四键验收工具 |
 | `_archive/` | 开发过程中的离线研究源码（归档，日常不用） |
 
 ### 重新编译
-需要 .NET Framework 4.8（系统自带 csc.exe）。编译命令见 `NOTES.md` 末尾。
+需要 .NET Framework 4.8（系统自带 csc.exe）：
+
+```bat
+build.bat
+```
+
+KeyMapper 自动测试：
+
+```bat
+tests\_run_keymap_tests.bat
+tests\_run_keycombo_smoke.bat
+```

@@ -1,0 +1,42 @@
+# RemoteMapper keymap config  (updated 2026-08-07)
+# RemoteMic.exe 启动时读取本文件；修改后需重启 RemoteMic 才会生效。
+# 驱动先把返回/音量±变成 F15/F13/F14，再由本文件决定目标快捷键。
+#
+# 完整 HID 映射 (Android getevent 抓取, 全部 Usage Page 0x0007 键盘页):
+#   电源键   HID 0x066 -> VK 0xFF (VK_POWER)
+#   确定键   HID 0x028 -> VK 0x0D (VK_RETURN)
+#   方向上   HID 0x052 -> VK 0x26 (VK_UP)
+#   方向下   HID 0x051 -> VK 0x28 (VK_DOWN)
+#   方向左   HID 0x050 -> VK 0x25 (VK_LEFT)
+#   方向右   HID 0x04F -> VK 0x27 (VK_RIGHT)
+#   返回键   HID 0x0F1 -> 驱动改为 HID F15 -> VK 0x7E (VK_F15)
+#   主页键   HID 0x04A -> VK 0x24 (VK_HOME)
+#   音量加   HID 0x080 -> 驱动改为 HID F13 -> VK 0x7C (VK_F13)
+#   音量减   HID 0x081 -> 驱动改为 HID F14 -> VK 0x7D (VK_F14)
+#   菜单键   HID 0x065 -> VK 0x5D (VK_APPS)
+#   直播键   HID 0x035 -> VK 0xC0 (VK_OEM_3)
+#
+# 每行格式:
+#   <键名> = <vk> -> <目标组合>
+# 目标组合: 键名用 + 连接, 例  LALT+TAB   /   RALT+OEM_COMMA   /   LWIN+D
+# -> 后面留空 = 不映射, 该键照常放行。
+#
+# 支持的目标键名:
+#   A-Z  0-9  F1..F24  LSHIFT/RSHIFT  LCTRL/RCTRL  LALT/RALT  LWIN/RWIN
+#   OEM_COMMA(,)  OEM_PERIOD(.)  OEM_PLUS(+)  OEM_MINUS(-)  OEM_1(;)  OEM_2(/)  OEM_3(`)
+#   SPACE  ENTER  TAB  ESC  BACK  CAPSLOCK  INSERT  DELETE
+#   HOME  END  PGUP  PGDN  LEFT  UP  RIGHT  DOWN  MENU  PRTSCR
+# 特殊: ALT+TAB (任务切换, 注入会弹出切换器, 放开 Alt 时切换)
+
+电源键    = 0xFF -> ESC
+确定键    = 0x0D ->
+方向上    = 0x26 -> UP
+方向下    = 0x28 -> DOWN
+方向左    = 0x25 -> LEFT
+方向右    = 0x27 -> RIGHT
+返回键    = 0x7E -> LCTRL+Z
+主页键    = 0x24 ->
+音量加    = 0x7C ->
+音量减    = 0x7D ->
+菜单键    = 0x5D -> LALT+TAB
+直播键    = 0xC0 -> LALT+X

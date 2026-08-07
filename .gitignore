@@ -5,8 +5,23 @@ RemoteMic.log
 # build intermediates
 *.pdb
 *.obj
+*.tlog
+*.recipe
+*.lastcodeanalysissucceeded
+*.nativecodeanalysis.xml
 obj/
 bin/
+.vs/
+driver/**/x64/
+tests/*.exe
+RemoteMic.new.exe
+
+# captures / large temporary diagnostics
+captures/
+*.zip
+*.etl
+*.cfa
+*.curf
 
 # test audio captures
 *.wav
@@ -19,3 +34,7 @@ bin/
 Thumbs.db
 desktop.ini
 nul
+NUL
+
+# Pi Agent
+.pi/

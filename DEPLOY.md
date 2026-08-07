@@ -7,7 +7,9 @@
 
 ## 0. 部署概览
 
-整个部署 = **拷 4 个 .exe + 装 2 个依赖软件 + 蓝牙配对遥控器**。运行时不依赖任何额外 dll —— WinRT / COM / .NET Framework 4.8 都由 Windows 系统自带提供。
+语音功能部署 = **拷 4 个 .exe + 装 2 个依赖软件 + 蓝牙配对遥控器**。运行时不依赖额外 dll —— WinRT / COM / .NET Framework 4.8 都由 Windows 系统自带提供。
+
+若还需要让 Windows 识别遥控器的音量±和返回键，另行部署可选的 `driver/MiRemoteHidFilter`。当前包是测试签名内核驱动，需要 TESTSIGNING；完整步骤只维护在 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。
 
 ```
 部署清单（最小集合）：
@@ -23,6 +25,11 @@ tools\（按需诊断，非运行必需）：
   KeySniffer.exe       诊断：键盘事件抓取（建议）
   DefDev.exe           诊断：录音设备列举/切换（建议）
   CaptureCable.exe     诊断：CABLE 音频回路验证（建议）
+  RemoteKeyTest.exe    可选驱动四键验收
+
+可选驱动：
+  driver\MiRemoteHidFilter\package\  测试签名安装包
+  driver\MiRemoteHidFilter\*.bat     准备、安装、验证、卸载和恢复脚本
 ```
 
 **数据流（理解原理有助于排错）：**
@@ -147,16 +154,10 @@ tools\（按需诊断，非运行必需）：
 
 ```bat
 cd /d D:\RemoteMapper
-
-C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:exe /platform:x64 ^
-  /r:"C:\Windows\System32\WinMetadata\Windows.Devices.winmd" ^
-  /r:"C:\Windows\System32\WinMetadata\Windows.Foundation.winmd" ^
-  /r:"C:\Windows\System32\WinMetadata\Windows.Storage.winmd" ^
-  /r:"C:\Windows\Microsoft.NET\assembly\GAC_MSIL\System.Runtime\v4.0_4.0.0.0__b03f5f7f11d50a3a\System.Runtime.dll" ^
-  /out:RemoteMic.exe src\RemoteMic.cs
+build.bat
 ```
 
-4 个引用缺一不可（Windows.Storage.winmd 提供 IBuffer；System.Runtime 提供异步扩展）。诊断工具（KeySniffer/DefDev/CaptureCable）是单文件，在项目根目录编译：`csc /out:tools\X.exe src\X.cs`。
+`build.bat` 会编译主程序及 KeyMapper 的所有源文件，并引用所需 WinMetadata/System.Runtime。4 个系统引用缺一不可（Windows.Storage.winmd 提供 IBuffer；System.Runtime 提供异步扩展）。诊断工具（KeySniffer/DefDev/CaptureCable）是单文件，可用系统 `csc.exe` 单独编译。
 
 ---
 
@@ -170,8 +171,7 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:exe /pla
 
 ### B2. 换一个语音输入法 / 换快捷键
 
-热键在 `src\RemoteMic.cs` 的 `KeySim` 里定义为 `VK_RMENU`（右 Alt, 0xA5）+ `VK_OEM_COMMA`（逗号, 0xBC）。
-若要改成别的组合（如 `Ctrl+Space`），修改这两个常量并调整 `HoldCombo/ReleaseCombo` 的扩展键标志后重新编译。
+语音键触发微信输入法的热键仍在 `src\RemoteMic.cs` 的 `KeySim` 中定义为右 Alt + 逗号。普通遥控器按键的全局映射则直接修改根目录 `keymap.txt`，重启 RemoteMic 后生效，无需重新编译。
 
 ### B3. 不自动切换录音设备（手动固定）
 
