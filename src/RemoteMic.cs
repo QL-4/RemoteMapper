@@ -43,7 +43,7 @@ class RemoteMic {
 
     // ===== key injection worker thread (avoids doing SendInput inside hook/WinRT callbacks) =====
     sealed class KeyAction {
-        public const int VoiceHold = 1, VoiceRelease = 2, MapDown = 3, MapUp = 4, MapTap = 5;
+        public const int VoiceHold = 1, VoiceRelease = 2, MapDown = 3, MapUp = 4, MapTap = 5, TaskView = 6;
         public int Kind;
         public ushort[] Combo;
         public KeyAction(int kind, ushort[] combo) { Kind = kind; Combo = combo; }
@@ -67,6 +67,8 @@ class RemoteMic {
                         KeySim.ReleaseMappedCombo(act.Combo);
                     } else if (act.Kind == KeyAction.MapTap) {
                         KeySim.TapMappedCombo(act.Combo);
+                    } else if (act.Kind == KeyAction.TaskView) {
+                        KeySim.OpenTaskView();
                     }
                 } catch (Exception ex) { Console.WriteLine("[KEY] worker err: " + ex.Message); }
             }
@@ -75,7 +77,8 @@ class RemoteMic {
     }
 
     public static void QueueMappedKey(MappedKeyEvent action) {
-        int kind = action.IsTap ? KeyAction.MapTap : (action.IsDown ? KeyAction.MapDown : KeyAction.MapUp);
+        int kind = action.Action == KeyActionKind.TaskView ? KeyAction.TaskView :
+            (action.IsTap ? KeyAction.MapTap : (action.IsDown ? KeyAction.MapDown : KeyAction.MapUp));
         keyQueue.Add(new KeyAction(kind, action.Combo));
     }
 
@@ -712,6 +715,9 @@ class KeySim {
     }
     public static void TapMappedCombo(ushort[] combo) {
         if (!KeyComboSender.Tap(combo)) Console.WriteLine("[KEYMAP] SendInput tap failed");
+    }
+    public static void OpenTaskView() {
+        System.Diagnostics.Process.Start("explorer.exe", "shell:::{3080F90E-D7AD-11D9-BD98-0000947B0257}");
     }
     public static void DiagFg(string tag) {
         // kept for manual debugging; disabled by default

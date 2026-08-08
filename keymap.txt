@@ -20,7 +20,8 @@
 #   <键名> = <vk> -> <目标组合>
 # 目标组合: 键名用 + 连接, 例  LALT+TAB   /   RALT+OEM_COMMA   /   LWIN+D
 # TAP 前缀 = 源键抬起后原子点按目标组合，避免源 F 键与目标修饰键形成 Windows 保留组合。
-# 短按/长按: TAP <短按组合> | HOLD <毫秒> -> TAP <长按组合>
+# 短按/长按: TAP <短按组合> | HOLD <毫秒> -> <长按组合或 TASKVIEW>
+# TASKVIEW = 通过 Explorer Shell 打开任务视图，不注入 Win 键。
 # -> 后面留空 = 不映射, 该键照常放行。
 #
 # 支持的目标键名:
@@ -36,9 +37,9 @@
 方向下    = 0x28 -> DOWN
 方向左    = 0x25 -> LEFT
 方向右    = 0x27 -> RIGHT
-返回键    = 0x7E -> LCTRL+Z
-主页键    = 0x7F -> TAP LWIN+TAB
+返回键    = 0x7E -> LCTRL+Z | HOLD 800 -> LCTRL+LSHIFT+Z
+主页键    = 0x7F -> TAP LALT+TAB | HOLD 800 -> TASKVIEW
 音量加    = 0x7C ->
 音量减    = 0x7D ->
-菜单键    = 0x80 -> LALT+TAB
+菜单键    = 0x80 ->
 直播键    = 0x81 -> ESC

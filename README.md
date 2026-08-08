@@ -13,7 +13,7 @@
 主页键 -> F16    菜单键 -> F17    直播键 -> F18    电源键 -> F19
 ```
 
-驱动源码、安装和回滚说明见 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。`RemoteMic.exe` 启动时读取 `keymap.txt`，提供全局源键→组合键映射。当前配置：电源短按→Alt+X、电源长按 800ms→Alt+F4、返回→Ctrl+Z、主页松开→Win+Tab、菜单→Alt+Tab、直播→Esc；四个方向键是同键映射，因此自动放行、保持原行为。
+驱动源码、安装和回滚说明见 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。`RemoteMic.exe` 启动时读取 `keymap.txt`，提供全局源键→组合键映射。当前配置：电源短按→Alt+X、长按→Alt+F4；返回短按→Ctrl+Z、长按→Ctrl+Shift+Z；主页短按→Alt+Tab、长按→Task View；菜单不映射；直播→Esc。四个方向键保持原行为。
 
 ---
 
@@ -122,11 +122,13 @@
 默认映射会在源键按住期间保持目标组合。`TAP` 表示等源键抬起后原子点按一次；`HOLD` 可配置长按阈值：
 
 ```text
-主页键 = 0x7F -> TAP LWIN+TAB
+主页键 = 0x7F -> TAP LALT+TAB | HOLD 800 -> TASKVIEW
 电源键 = 0x82 -> TAP LALT+X | HOLD 800 -> TAP LALT+F4
 ```
 
-电源键在 800ms 前松开会点按 Alt+X；达到 800ms 时立即点按一次 Alt+F4，继续按住不重复，松开不补发。主页使用 `TAP`，避免源 F16 与注入的 Win 键组成 Windows 保留快捷键 `Win+F16`（滑动关机）。
+电源键在 800ms 前松开会点按 Alt+X；达到 800ms 时立即点按一次 Alt+F4，继续按住不重复，松开不补发。
+
+`TASKVIEW` 是系统动作：执行 `explorer.exe shell:::{3080F90E-D7AD-11D9-BD98-0000947B0257}` 打开任务视图，不注入 Win 键。主页长按必须使用它，因为 F16 物理保持期间发送 Win 会组成 Windows 保留快捷键 `Win+F16`，弹出“滑动以关闭电脑”；注入一个 F16 key-up 也不能可靠取消 HID 的物理保持状态。
 
 映射通过同一个全局低级键盘钩子实现；程序自身注入事件会被忽略，避免递归。
 

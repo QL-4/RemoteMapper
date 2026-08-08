@@ -4,18 +4,27 @@ public sealed class MappedKeyEvent {
     public ushort[] Combo { get; private set; }
     public bool IsDown { get; private set; }
     public bool IsTap { get; private set; }
+    public KeyActionKind Action { get; private set; }
 
     public MappedKeyEvent(ushort[] combo, bool isDown)
-        : this(combo, isDown, false) { }
+        : this(combo, isDown, false, KeyActionKind.Combo) { }
 
-    public MappedKeyEvent(ushort[] combo, bool isDown, bool isTap) {
+    public MappedKeyEvent(ushort[] combo, bool isDown, bool isTap)
+        : this(combo, isDown, isTap, KeyActionKind.Combo) { }
+
+    public MappedKeyEvent(ushort[] combo, bool isDown, bool isTap, KeyActionKind action) {
         Combo = combo;
         IsDown = isDown;
         IsTap = isTap;
+        Action = action;
     }
 
     public static MappedKeyEvent Tap(ushort[] combo) {
-        return new MappedKeyEvent(combo, false, true);
+        return new MappedKeyEvent(combo, false, true, KeyActionKind.Combo);
+    }
+
+    public static MappedKeyEvent SystemAction(KeyActionKind action) {
+        return new MappedKeyEvent(null, false, true, action);
     }
 }
 
@@ -25,6 +34,7 @@ public sealed class KeyMapEngine {
         public bool Tap;
         public uint LongPressMs;
         public ushort[] LongCombo;
+        public KeyActionKind LongAction;
     }
 
     static readonly MappedKeyEvent[] NoActions = new MappedKeyEvent[0];
@@ -43,7 +53,8 @@ public sealed class KeyMapEngine {
                 Combo = binding.Combo,
                 Tap = binding.Tap,
                 LongPressMs = binding.LongPressMs,
-                LongCombo = binding.LongCombo
+                LongCombo = binding.LongCombo,
+                LongAction = binding.LongAction
             };
         }
     }
@@ -88,7 +99,10 @@ public sealed class KeyMapEngine {
         ushort[] combo = binding.Combo;
         if (binding.LongCombo != null && hadTime) {
             uint elapsed = unchecked(eventTime - downTime);
-            if (elapsed >= binding.LongPressMs) combo = binding.LongCombo;
+            if (elapsed >= binding.LongPressMs) {
+                actions = new[] { binding.LongAction == KeyActionKind.Combo ? MappedKeyEvent.Tap(binding.LongCombo) : MappedKeyEvent.SystemAction(binding.LongAction) };
+                return true;
+            }
         }
         actions = new[] { MappedKeyEvent.Tap(combo) };
         return true;
@@ -105,7 +119,7 @@ public sealed class KeyMapEngine {
             if (elapsed < binding.LongPressMs) continue;
 
             longFired.Add(entry.Key);
-            actions.Add(MappedKeyEvent.Tap(binding.LongCombo));
+            actions.Add(binding.LongAction == KeyActionKind.Combo ? MappedKeyEvent.Tap(binding.LongCombo) : MappedKeyEvent.SystemAction(binding.LongAction));
         }
         return actions.ToArray();
     }

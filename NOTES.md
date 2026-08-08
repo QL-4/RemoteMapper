@@ -232,9 +232,11 @@ kbdclass -> kbdhid -> MiRemoteHidFilter -> mshidumdf
 ```text
 电源键 (F19) 短按 -> LALT+X
 电源键 (F19) 长按 800ms -> 立即点按 LALT+F4
-返回键 (F15) -> LCTRL+Z
-主页键 (F16) 抬起 -> 点按 LWIN+TAB
-菜单键 (F17) -> LALT+TAB
+返回键 (F15) 短按 -> LCTRL+Z
+返回键 (F15) 长按 800ms -> LCTRL+LSHIFT+Z
+主页键 (F16) 短按 -> LALT+TAB
+主页键 (F16) 长按 800ms -> TASKVIEW
+菜单键 (F17) -> 不映射
 直播键 (F18) -> ESC
 ```
 
@@ -242,9 +244,9 @@ kbdclass -> kbdhid -> MiRemoteHidFilter -> mshidumdf
 
 普通映射保持目标组合直到源键抬起；`TAP` 映射在源键抬起后原子点按。`HOLD <ms>` 由 hook pump 的 25ms Win32 timer 判定：到阈值立即触发一次 long action，继续按住不重复，松开不补发；阈值前松开则执行 short action。定时器使用 `SetTimer(NULL, ...)` 返回的实际 ID（Windows 不保证保留请求 ID）。
 
-主页必须使用 `TAP`：若按住 F16 的同时注入并保持 Win，Windows 会识别保留快捷键 `Win+F16` 并显示“滑动以关闭电脑”。等 F16 抬起后再原子点按 Win+Tab 可完全隔离该组合。
+主页长按不能注入 Win：F16 仍由 HID 物理保持时，Windows 会识别保留快捷键 `Win+F16` 并显示“滑动以关闭电脑”。即使先通过 SendInput 注入 F16 key-up，也不能可靠取消底层物理状态。因此配置支持 `TASKVIEW` 系统动作，由 worker 执行 `explorer.exe shell:::{3080F90E-D7AD-11D9-BD98-0000947B0257}`，完全不发送 Win 键。
 
-自动测试覆盖：配置解析、短按/长按阈值、长按只触发一次、长按后下一次短按恢复、同键放行、重复 down 去重、up 释放、注入事件放行、物理 Home/Apps/反引号/Power 放行，以及真实 `SendInput` 的 `Ctrl down -> Z down -> Z up -> Ctrl up` 顺序。
+自动测试覆盖：配置解析、`TASKVIEW` 系统动作、短按/长按阈值、长按只触发一次、长按后下一次短按恢复、同键放行、重复 down 去重、up 释放、注入事件放行、物理 Home/Apps/反引号/Power 放行，以及真实 `SendInput` 的组合键按下/释放顺序。
 
 ## 技术栈约束
 - 编译: .NET Framework 4.8 csc.exe (无 .NET SDK, 有 .NET 8 runtime)

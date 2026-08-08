@@ -2,24 +2,31 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
+public enum KeyActionKind { Combo, TaskView }
+
 public sealed class KeyBinding {
     public string Name { get; private set; }
     public ushort SourceVk { get; private set; }
     public ushort[] Combo { get; private set; }
     public uint LongPressMs { get; private set; }
     public ushort[] LongCombo { get; private set; }
+    public KeyActionKind LongAction { get; private set; }
     public bool Tap { get; private set; }
 
     public KeyBinding(string name, ushort sourceVk, ushort[] combo)
         : this(name, sourceVk, combo, false, 0, null) { }
 
-    public KeyBinding(string name, ushort sourceVk, ushort[] combo, bool tap, uint longPressMs, ushort[] longCombo) {
+    public KeyBinding(string name, ushort sourceVk, ushort[] combo, bool tap, uint longPressMs, ushort[] longCombo)
+        : this(name, sourceVk, combo, tap, longPressMs, longCombo, KeyActionKind.Combo) { }
+
+    public KeyBinding(string name, ushort sourceVk, ushort[] combo, bool tap, uint longPressMs, ushort[] longCombo, KeyActionKind longAction) {
         Name = name;
         SourceVk = sourceVk;
         Combo = combo;
         Tap = tap;
         LongPressMs = longPressMs;
         LongCombo = longCombo;
+        LongAction = longAction;
     }
 }
 
@@ -61,6 +68,7 @@ public static class KeyMapConfig {
 
             uint longPressMs = 0;
             ushort[] longCombo = null;
+            KeyActionKind longAction = KeyActionKind.Combo;
             if (longText != null) {
                 if (!longText.StartsWith("HOLD ", StringComparison.OrdinalIgnoreCase))
                     throw new FormatException("Expected HOLD in keymap: " + longText);
@@ -73,13 +81,18 @@ public static class KeyMapConfig {
                     throw new FormatException("Invalid HOLD threshold in keymap: " + threshold);
 
                 string longTarget = longText.Substring(longArrow + 2).Trim();
-                StripPrefix(ref longTarget, "TAP");
-                longCombo = ParseCombo(longTarget);
-                if (longCombo.Length == 0)
-                    throw new FormatException("Empty HOLD target in keymap: " + longText);
+                if (String.Equals(longTarget, "TASKVIEW", StringComparison.OrdinalIgnoreCase)) {
+                    longAction = KeyActionKind.TaskView;
+                    longCombo = new ushort[0];
+                } else {
+                    StripPrefix(ref longTarget, "TAP");
+                    longCombo = ParseCombo(longTarget);
+                    if (longCombo.Length == 0)
+                        throw new FormatException("Empty HOLD target in keymap: " + longText);
+                }
             }
 
-            result.Add(new KeyBinding(name, sourceVk, combo, tap, longPressMs, longCombo));
+            result.Add(new KeyBinding(name, sourceVk, combo, tap, longPressMs, longCombo, longAction));
         }
         return result;
     }
