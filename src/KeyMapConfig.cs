@@ -6,11 +6,20 @@ public sealed class KeyBinding {
     public string Name { get; private set; }
     public ushort SourceVk { get; private set; }
     public ushort[] Combo { get; private set; }
+    public uint LongPressMs { get; private set; }
+    public ushort[] LongCombo { get; private set; }
+    public bool Tap { get; private set; }
 
-    public KeyBinding(string name, ushort sourceVk, ushort[] combo) {
+    public KeyBinding(string name, ushort sourceVk, ushort[] combo)
+        : this(name, sourceVk, combo, false, 0, null) { }
+
+    public KeyBinding(string name, ushort sourceVk, ushort[] combo, bool tap, uint longPressMs, ushort[] longCombo) {
         Name = name;
         SourceVk = sourceVk;
         Combo = combo;
+        Tap = tap;
+        LongPressMs = longPressMs;
+        LongCombo = longCombo;
     }
 }
 
@@ -32,6 +41,13 @@ public static class KeyMapConfig {
             string targetText = line.Substring(arrow + 2).Trim();
             if (targetText.Length == 0) continue;
 
+            string longText = null;
+            int separator = targetText.IndexOf('|');
+            if (separator >= 0) {
+                longText = targetText.Substring(separator + 1).Trim();
+                targetText = targetText.Substring(0, separator).Trim();
+            }
+
             string[] sourceParts = sourceText.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
             if (sourceParts.Length == 0) continue;
 
@@ -39,19 +55,51 @@ public static class KeyMapConfig {
             if (!TryParseKey(sourceParts[0], out sourceVk))
                 throw new FormatException("Unknown source key in keymap: " + sourceParts[0]);
 
-            string[] targetParts = targetText.Split(new[] { '+' }, StringSplitOptions.RemoveEmptyEntries);
-            var combo = new List<ushort>();
-            foreach (string part in targetParts) {
-                ushort targetVk;
-                if (!TryParseKey(part.Trim(), out targetVk))
-                    throw new FormatException("Unknown target key in keymap: " + part.Trim());
-                combo.Add(targetVk);
-            }
-            if (combo.Count == 0) continue;
+            bool tap = StripPrefix(ref targetText, "TAP");
+            ushort[] combo = ParseCombo(targetText);
+            if (combo.Length == 0) continue;
 
-            result.Add(new KeyBinding(name, sourceVk, combo.ToArray()));
+            uint longPressMs = 0;
+            ushort[] longCombo = null;
+            if (longText != null) {
+                if (!longText.StartsWith("HOLD ", StringComparison.OrdinalIgnoreCase))
+                    throw new FormatException("Expected HOLD in keymap: " + longText);
+                int longArrow = longText.IndexOf("->", StringComparison.Ordinal);
+                if (longArrow < 0)
+                    throw new FormatException("Expected -> after HOLD in keymap: " + longText);
+
+                string threshold = longText.Substring(5, longArrow - 5).Trim();
+                if (!UInt32.TryParse(threshold, NumberStyles.Integer, CultureInfo.InvariantCulture, out longPressMs) || longPressMs == 0)
+                    throw new FormatException("Invalid HOLD threshold in keymap: " + threshold);
+
+                string longTarget = longText.Substring(longArrow + 2).Trim();
+                StripPrefix(ref longTarget, "TAP");
+                longCombo = ParseCombo(longTarget);
+                if (longCombo.Length == 0)
+                    throw new FormatException("Empty HOLD target in keymap: " + longText);
+            }
+
+            result.Add(new KeyBinding(name, sourceVk, combo, tap, longPressMs, longCombo));
         }
         return result;
+    }
+
+    static bool StripPrefix(ref string text, string prefix) {
+        if (!text.StartsWith(prefix + " ", StringComparison.OrdinalIgnoreCase)) return false;
+        text = text.Substring(prefix.Length + 1).Trim();
+        return true;
+    }
+
+    static ushort[] ParseCombo(string text) {
+        string[] parts = text.Split(new[] { '+' }, StringSplitOptions.RemoveEmptyEntries);
+        var combo = new List<ushort>();
+        foreach (string part in parts) {
+            ushort vk;
+            if (!TryParseKey(part.Trim(), out vk))
+                throw new FormatException("Unknown target key in keymap: " + part.Trim());
+            combo.Add(vk);
+        }
+        return combo.ToArray();
     }
 
     public static bool TryParseKey(string text, out ushort vk) {

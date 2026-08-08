@@ -40,8 +40,7 @@ class KeyComboSenderSmoke {
         timer.Tick+=(s,e)=>{
             timer.Stop();
             ushort[] combo={0xA2,0x5A};
-            bool down=KeyComboSender.Press(combo);
-            bool up=KeyComboSender.Release(combo);
+            bool sent=KeyComboSender.Tap(combo);
             var done=new System.Windows.Forms.Timer();
             done.Interval=250;
             done.Tick+=(s2,e2)=>{
@@ -50,7 +49,7 @@ class KeyComboSenderSmoke {
                 string actual=String.Join(",",events.ToArray());
                 string expected="A2:D,5A:D,5A:U,A2:U";
                 Console.WriteLine("actual="+actual);
-                if(!down||!up||actual!=expected) Environment.Exit(1);
+                if(!sent||actual!=expected) Environment.Exit(1);
                 Console.WriteLine("PASS KeyComboSender Ctrl+Z order");
                 Application.Exit();
             };

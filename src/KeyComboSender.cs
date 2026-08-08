@@ -62,4 +62,12 @@ public static class KeyComboSender {
         for (int i = 0; i < combo.Length; i++) inputs[i] = MakeInput(combo[combo.Length - 1 - i], false);
         return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT))) == inputs.Length;
     }
+
+    public static bool Tap(ushort[] combo) {
+        if (combo == null || combo.Length == 0) return false;
+        var inputs = new INPUT[combo.Length * 2];
+        for (int i = 0; i < combo.Length; i++) inputs[i] = MakeInput(combo[i], true);
+        for (int i = 0; i < combo.Length; i++) inputs[combo.Length + i] = MakeInput(combo[combo.Length - 1 - i], false);
+        return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT))) == inputs.Length;
+    }
 }

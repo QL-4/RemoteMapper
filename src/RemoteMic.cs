@@ -43,7 +43,7 @@ class RemoteMic {
 
     // ===== key injection worker thread (avoids doing SendInput inside hook/WinRT callbacks) =====
     sealed class KeyAction {
-        public const int VoiceHold = 1, VoiceRelease = 2, MapDown = 3, MapUp = 4;
+        public const int VoiceHold = 1, VoiceRelease = 2, MapDown = 3, MapUp = 4, MapTap = 5;
         public int Kind;
         public ushort[] Combo;
         public KeyAction(int kind, ushort[] combo) { Kind = kind; Combo = combo; }
@@ -65,6 +65,8 @@ class RemoteMic {
                         KeySim.PressMappedCombo(act.Combo);
                     } else if (act.Kind == KeyAction.MapUp) {
                         KeySim.ReleaseMappedCombo(act.Combo);
+                    } else if (act.Kind == KeyAction.MapTap) {
+                        KeySim.TapMappedCombo(act.Combo);
                     }
                 } catch (Exception ex) { Console.WriteLine("[KEY] worker err: " + ex.Message); }
             }
@@ -73,7 +75,8 @@ class RemoteMic {
     }
 
     public static void QueueMappedKey(MappedKeyEvent action) {
-        keyQueue.Add(new KeyAction(action.IsDown ? KeyAction.MapDown : KeyAction.MapUp, action.Combo));
+        int kind = action.IsTap ? KeyAction.MapTap : (action.IsDown ? KeyAction.MapDown : KeyAction.MapUp);
+        keyQueue.Add(new KeyAction(kind, action.Combo));
     }
 
     // ===== playback =====
@@ -353,6 +356,8 @@ class F5Blocker {
     [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hhk);
     [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] static extern int GetMessage(out MSG msg, IntPtr hwnd, uint min, uint max);
+    [DllImport("user32.dll")] static extern UIntPtr SetTimer(IntPtr hwnd, UIntPtr id, uint interval, IntPtr callback);
+    [DllImport("kernel32.dll")] static extern uint GetTickCount();
     [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string name);
     [StructLayout(LayoutKind.Sequential)] struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam; public IntPtr lParam; public uint time; public int px, py; }
     const int WH_KEYBOARD_LL = 13;
@@ -365,7 +370,8 @@ class F5Blocker {
     static volatile IntPtr hhk = IntPtr.Zero;
     static Thread pump;
     static uint pumpTid;
-    const uint WM_APP_REHOOK = 0x8000;
+    const uint WM_TIMER = 0x0113, WM_APP_REHOOK = 0x8000;
+    static UIntPtr keymapTimerId = UIntPtr.Zero;
     static volatile int f5Count = 0;
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] static extern bool PostThreadMessage(uint tid, uint msg, IntPtr w, IntPtr l);
@@ -381,9 +387,9 @@ class F5Blocker {
                 bool up = message == WM_KEYUP || message == WM_SYSKEYUP;
                 if (down || up) {
                     bool injected = (k.flags & (LLKHF_INJECTED | LLKHF_LOWER_IL_INJECTED)) != 0;
-                    MappedKeyEvent action;
-                    if (KeyMapper.Handle((ushort)k.vkCode, down, injected, out action)) {
-                        if (action != null) RemoteMic.QueueMappedKey(action);
+                    MappedKeyEvent[] actions;
+                    if (KeyMapper.Handle((ushort)k.vkCode, down, injected, k.time, out actions)) {
+                        foreach (MappedKeyEvent action in actions) RemoteMic.QueueMappedKey(action);
                         return (IntPtr)1;
                     }
                 }
@@ -397,12 +403,18 @@ class F5Blocker {
             pumpTid = GetCurrentThreadId();
             try {
                 hhk = SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(null), 0);
+                keymapTimerId = SetTimer(IntPtr.Zero, (UIntPtr)1, 25, IntPtr.Zero);
+                if (keymapTimerId == UIntPtr.Zero) Console.WriteLine("[KEYMAP] timer install failed");
                 Console.WriteLine("[F5] blocker installed");
                 MSG m;
                 while (GetMessage(out m, IntPtr.Zero, 0, 0) > 0) {
                     // re-install hook request from keyworker thread (Resume)
                     if (m.message == WM_APP_REHOOK && hhk == IntPtr.Zero)
                         hhk = SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(null), 0);
+                    if (m.message == WM_TIMER && unchecked((ulong)m.wParam.ToInt64()) == keymapTimerId.ToUInt64()) {
+                        foreach (MappedKeyEvent action in KeyMapper.TakeDueActions(GetTickCount()))
+                            RemoteMic.QueueMappedKey(action);
+                    }
                     TranslateMessage(ref m);
                     DispatchMessage(ref m);
                 }
@@ -697,6 +709,9 @@ class KeySim {
     }
     public static void ReleaseMappedCombo(ushort[] combo) {
         if (!KeyComboSender.Release(combo)) Console.WriteLine("[KEYMAP] SendInput up failed");
+    }
+    public static void TapMappedCombo(ushort[] combo) {
+        if (!KeyComboSender.Tap(combo)) Console.WriteLine("[KEYMAP] SendInput tap failed");
     }
     public static void DiagFg(string tag) {
         // kept for manual debugging; disabled by default

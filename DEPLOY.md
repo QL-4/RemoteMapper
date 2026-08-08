@@ -9,7 +9,7 @@
 
 语音功能部署 = **拷 4 个 .exe + 装 2 个依赖软件 + 蓝牙配对遥控器**。运行时不依赖额外 dll —— WinRT / COM / .NET Framework 4.8 都由 Windows 系统自带提供。
 
-若还需要让 Windows 识别遥控器的音量±和返回键，另行部署可选的 `driver/MiRemoteHidFilter`。当前包是测试签名内核驱动，需要 TESTSIGNING；完整步骤只维护在 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。
+若还需要让 Windows 识别遥控器的音量±和返回键，或要把主页/菜单/直播/电源映射为全局组合键，另行部署可选的 `driver/MiRemoteHidFilter`。它为遥控器分配 F13-F19 设备专用源键，避免误触物理键盘的同名键。当前包是测试签名内核驱动，需要 TESTSIGNING；完整步骤只维护在 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。
 
 ```
 部署清单（最小集合）：
@@ -25,7 +25,7 @@ tools\（按需诊断，非运行必需）：
   KeySniffer.exe       诊断：键盘事件抓取（建议）
   DefDev.exe           诊断：录音设备列举/切换（建议）
   CaptureCable.exe     诊断：CABLE 音频回路验证（建议）
-  RemoteKeyTest.exe    可选驱动四键验收
+  RemoteKeyTest.exe    可选驱动八键验收（方向上 + F13-F19）
 
 可选驱动：
   driver\MiRemoteHidFilter\package\  测试签名安装包

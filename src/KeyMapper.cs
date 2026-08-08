@@ -21,7 +21,11 @@ public static class KeyMapper {
         }
     }
 
-    public static bool Handle(ushort sourceVk, bool isDown, bool injected, out MappedKeyEvent action) {
-        return engine.Handle(sourceVk, isDown, injected, out action);
+    public static bool Handle(ushort sourceVk, bool isDown, bool injected, uint eventTime, out MappedKeyEvent[] actions) {
+        return engine.HandleTimed(sourceVk, isDown, injected, eventTime, out actions);
+    }
+
+    public static MappedKeyEvent[] TakeDueActions(uint currentTime) {
+        return engine.TakeDueActions(currentTime);
     }
 }

@@ -6,15 +6,14 @@
 **按住遥控器语音键** → 自动唤起微信输入法语音录入 + 把遥控器麦克风的音频送进去；
 **松开** → 结束录入，恢复系统原默认麦克风。
 
-项目还包含一个设备专属 HID lower filter，用来修复 Windows 会丢弃的三个按键：
+项目还包含一个设备专属 HID lower filter：既修复 Windows 会丢弃的三个按键，也为需要全局映射的遥控器普通键分配独有 F 键：
 
 ```text
-音量加 -> F13
-音量减 -> F14
-返回键 -> F15
+音量加 -> F13    音量减 -> F14    返回键 -> F15
+主页键 -> F16    菜单键 -> F17    直播键 -> F18    电源键 -> F19
 ```
 
-驱动源码、安装和回滚说明见 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。`RemoteMic.exe` 启动时读取 `keymap.txt`，提供全局源键→组合键映射。当前配置：电源→Esc、返回→Ctrl+Z、菜单→Alt+Tab、直播→Alt+X；四个方向键是同键映射，因此自动放行、保持原行为。
+驱动源码、安装和回滚说明见 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。`RemoteMic.exe` 启动时读取 `keymap.txt`，提供全局源键→组合键映射。当前配置：电源短按→Alt+X、电源长按 800ms→Alt+F4、返回→Ctrl+Z、主页松开→Win+Tab、菜单→Alt+Tab、直播→Esc；四个方向键是同键映射，因此自动放行、保持原行为。
 
 ---
 
@@ -100,11 +99,13 @@
 
 ---
 
-## 四、HID 三键修复（可选）
+## 四、HID 设备专用键隔离（可选）
 
-遥控器把音量加、音量减、返回放在 HID Keyboard Page 的 `0x80/0x81/0xF1` usage 上，Windows `kbdhid.sys` 默认不会生成按键事件。`driver/MiRemoteHidFilter` 在 `kbdhid` 解析前把它们等长改写为 F13/F14/F15。
+遥控器把音量加、音量减、返回放在 HID Keyboard Page 的 `0x80/0x81/0xF1` usage 上，Windows `kbdhid.sys` 默认不会生成按键事件。`driver/MiRemoteHidFilter` 在 `kbdhid` 解析前等长改写为 F13/F14/F15。
 
-实机验收：方向上、F13、F14、F15 全部通过；HVCI/内存完整性可以保持开启。当前提交中的包使用 WDK 测试证书，因此需要 TESTSIGNING。详细步骤与回滚方式只维护在驱动目录的 README 中。
+主页、菜单、直播、电源原本会分别成为 Home、Apps、反引号、Power；但 `WH_KEYBOARD_LL` 不提供来源设备 ID，若直接在 `keymap.txt` 映射它们，物理键盘上的同名键也会被误触发。因此 filter 还把**此遥控器的**四个 usage 改为 F16–F19。全局映射只监听 F13–F19，物理键盘的 Home/Apps/反引号/Power 保持原样。
+
+实机验收工具会检查方向上 + F13–F19 共八键；HVCI/内存完整性可以保持开启。当前提交中的包使用 WDK 测试证书，因此需要 TESTSIGNING。详细步骤与回滚方式只维护在驱动目录的 README 中。
 
 ---
 
@@ -118,7 +119,16 @@
 
 目标组合使用 `+` 连接，例如 `LCTRL+Z`、`LALT+TAB`。留空表示不映射；目标只有一个键且与源 VK 相同也会自动放行。配置在 RemoteMic 启动时加载，修改后需重启 RemoteMic。
 
-映射通过同一个全局低级键盘钩子实现：源键 down/up 被吞掉，组合按配置顺序按下、逆序释放；程序自身注入事件会被忽略，避免递归。
+默认映射会在源键按住期间保持目标组合。`TAP` 表示等源键抬起后原子点按一次；`HOLD` 可配置长按阈值：
+
+```text
+主页键 = 0x7F -> TAP LWIN+TAB
+电源键 = 0x82 -> TAP LALT+X | HOLD 800 -> TAP LALT+F4
+```
+
+电源键在 800ms 前松开会点按 Alt+X；达到 800ms 时立即点按一次 Alt+F4，继续按住不重复，松开不补发。主页使用 `TAP`，避免源 F16 与注入的 Win 键组成 Windows 保留快捷键 `Win+F16`（滑动关机）。
+
+映射通过同一个全局低级键盘钩子实现；程序自身注入事件会被忽略，避免递归。
 
 ---
 
@@ -191,10 +201,10 @@ tools\KeySniffer.exe
 | 文件 | 说明 |
 |------|------|
 | `NOTES.md` | 完整技术笔记（协议逆向、排错历程） |
-| `driver/MiRemoteHidFilter/` | 三个特殊键的 KMDF lower filter、测试签名包与安装/回滚脚本 |
+| `driver/MiRemoteHidFilter/` | F13–F19 设备专用键的 KMDF lower filter、测试签名包与安装/回滚脚本 |
 | `keymap.txt` | 全局按键映射配置；RemoteMic 启动时读取 |
 | `tools/HidCaps.*` | 只读 HID descriptor/preparsed metadata 验证工具 |
-| `tools/RemoteKeyTest.*` | 方向上 + F13/F14/F15 四键验收工具 |
+| `tools/RemoteKeyTest.*` | 方向上 + F13–F19 八键验收工具 |
 | `_archive/` | 开发过程中的离线研究源码（归档，日常不用） |
 
 ### 重新编译

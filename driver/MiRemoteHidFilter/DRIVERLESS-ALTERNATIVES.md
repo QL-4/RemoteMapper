@@ -60,7 +60,7 @@ Win32 HID/WinRT HID 也不能作为普通第二客户端读取系统独占的 ke
 
 ## 为什么当前 filter 的位置合理
 
-当前 filter 精确绑定 VID/PID/REV，只在 Report ID `0x01` 中将三个 usage 等长替换成 F13/F14/F15，其他报告原样通过。它正好位于原始 HID report 已到达、但 `kbdhid` 尚未丢弃目标 usage 的唯一稳定 seam；ATVV vendor reports 不受修改。
+当前 filter 精确绑定 VID/PID/REV，只在 Report ID `0x01` 中等长替换 usage：音量±/返回改为 F13-F15，且把需要全局组合键映射的主页/菜单/直播/电源改为 F16-F19，其他报告原样通过。后四项隔离避免 `WH_KEYBOARD_LL` 缺少来源设备 ID 时误吞物理键盘的 Home/Apps/反引号/Power。它正好位于原始 HID report 已到达、但 `kbdhid` 尚未丢弃目标 usage 的唯一稳定 seam；ATVV vendor reports 不受修改。
 
 ## 一手资料
 

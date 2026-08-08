@@ -4,7 +4,7 @@ Class=Extension
 ClassGuid={e2f84ce7-8efa-411c-aa69-97454ca4cb57}
 Provider=%ProviderName%
 ExtensionId={20c2709e-e4ab-4a6c-a436-8a6bbdbf35aa}
-DriverVer = 08/07/2026,22.21.42.387
+DriverVer = 08/08/2026,12.32.12.480
 CatalogFile=MiRemoteHidFilter.cat
 PnpLockdown=1
 

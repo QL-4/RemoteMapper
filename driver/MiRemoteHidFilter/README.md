@@ -1,6 +1,6 @@
 # MiRemoteHidFilter
 
-设备专属 KMDF lower filter，用于修复小米蓝牙语音遥控器 2 Pro 在 Windows 上被 `kbdhid.sys` 丢弃的三个 HID Keyboard Page usage。
+设备专属 KMDF lower filter，用于修复小米蓝牙语音遥控器 2 Pro 被 `kbdhid.sys` 丢弃的三个 HID Keyboard Page usage，并为当前需要全局映射的普通遥控器键分配设备专用 F 键。
 
 ## 绑定范围
 
@@ -19,8 +19,14 @@
 | 音量加 | `0x80` | F13 `0x68` | `0x7C` |
 | 音量减 | `0x81` | F14 `0x69` | `0x7D` |
 | 返回 | `0xF1` | F15 `0x6A` | `0x7E` |
+| 主页 | `0x4A` | F16 `0x6B` | `0x7F` |
+| 菜单 | `0x65` | F17 `0x6C` | `0x80` |
+| 直播 | `0x35` | F18 `0x6D` | `0x81` |
+| 电源 | `0x66` | F19 `0x6E` | `0x82` |
 
-方向键等 Windows 原本可识别的按键不变。
+前三个 usage 原本会被 `kbdhid.sys` 丢弃；后四个本可映射为 Home / Apps / OEM_3 / Power，但全局低级键盘钩子没有来源设备 ID，直接映射会误吞物理键盘的同名键。因此把它们改为 F16–F19，仅由此 VID/PID 的遥控器生成。
+
+未映射的确定与方向键保持原样，保留其原生按住/重复行为。若未来要为这些普通键增加组合键映射，必须先在此 filter 分配未使用的 F20–F24，再在 `keymap.txt` 使用对应 VK；不要直接把 `VK_ENTER` / 方向 VK 设为映射源。
 
 ## 报告格式与实现
 
@@ -63,6 +69,10 @@ Windows 11 x64、HVCI/内存完整性开启时通过：
 音量加 = F13 0x7C   PASS
 音量减 = F14 0x7D   PASS
 返回键 = F15 0x7E   PASS
+主页键 = F16 0x7F   PASS
+菜单键 = F17 0x80   PASS
+直播键 = F18 0x81   PASS
+电源键 = F19 0x82   PASS
 ```
 
 验证工具：
@@ -85,7 +95,7 @@ MiRemoteHidFilter/
 ├── install-driver.*          安装 package/
 ├── uninstall-driver.*        卸载所有旧版本包
 ├── restore-normal-mode.*     卸载后关闭 TESTSIGNING、移除证书
-└── verify-keys.bat           四键验收
+└── verify-keys.bat           八键验收
 ```
 
 ## 构建

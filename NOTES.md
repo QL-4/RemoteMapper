@@ -82,7 +82,7 @@ CTL (ab5e0004 Notify, 遥控器→主机):
 - [x] Phase 2: IMA ADPCM 解码 → 16bit PCM ✅ (headerless 连续解码, CleanDecode.cs)
 - [x] Phase 3: 实时解码管道 (BLE notify → ADPCM 解码 → VB-Cable) ✅ (src\RemoteMic.cs)
 - [x] Phase 4: 联动语音输入法 (按住录入) ✅
-- [x] Phase 5: HID 三键修复驱动（音量±/返回 -> F13/F14/F15）✅
+- [x] Phase 5: HID 设备专用键隔离（音量±/返回/主页/菜单/直播/电源 -> F13-F19）✅
 - [x] Phase 6: 通用 KeyMapper（配置文件驱动的全局组合键映射）✅
 
 ---
@@ -161,7 +161,7 @@ build.bat
 
 脚本会编译 `RemoteMic.cs`、`KeyMapConfig.cs`、`KeyMapEngine.cs`、`KeyMapper.cs` 和 `KeyComboSender.cs`，并写出 `RemoteMic.exe`。
 
-## Phase 5：HID 三键修复（最终结论）
+## Phase 5：HID 设备专用键隔离（最终结论）
 
 ### 问题
 
@@ -205,12 +205,18 @@ kbdclass -> kbdhid -> MiRemoteHidFilter -> mshidumdf
 它只拦截 `IRP_MJ_READ` 的完成路径，并等长修改 `report[3]`：
 
 ```text
-0x80 -> 0x68 (F13 / VK 0x7C)
-0x81 -> 0x69 (F14 / VK 0x7D)
-0xF1 -> 0x6A (F15 / VK 0x7E)
+0x80 -> 0x68 (F13 / VK 0x7C)  音量加
+0x81 -> 0x69 (F14 / VK 0x7D)  音量减
+0xF1 -> 0x6A (F15 / VK 0x7E)  返回
+0x4A -> 0x6B (F16 / VK 0x7F)  主页
+0x65 -> 0x6C (F17 / VK 0x80)  菜单
+0x35 -> 0x6D (F18 / VK 0x81)  直播
+0x66 -> 0x6E (F19 / VK 0x82)  电源
 ```
 
-最终实机验收：方向上、F13、F14、F15 均 PASS；设备状态 `CM_PROB_NONE`，HVCI/内存完整性保持开启。当前包是 WDK 测试签名包，需要 TESTSIGNING。安装、回滚和正式签名限制见 `driver/MiRemoteHidFilter/README.md`。
+前三个 usage 是 `kbdhid.sys` 原本不生成 VK 的特殊 usage。后四个本可生成 Home / Apps / OEM_3 / Power，但 `WH_KEYBOARD_LL` 只给 VK、不提供 HID 来源设备 ID：直接把主页 `VK_HOME=0x24` 映射为 Win+Tab 时，物理键盘 Home 也会被吞掉。故将需要组合键映射的遥控器普通键也隔离为 F16-F19。物理 Home/Apps/反引号/Power 保持原行为。
+
+实机验收工具检查方向上与 F13-F19 共八键；设备状态 `CM_PROB_NONE`，HVCI/内存完整性保持开启。当前包是 WDK 测试签名包，需要 TESTSIGNING。安装、回滚和正式签名限制见 `driver/MiRemoteHidFilter/README.md`。
 
 ## Phase 6：通用 KeyMapper
 
@@ -224,15 +230,21 @@ kbdclass -> kbdhid -> MiRemoteHidFilter -> mshidumdf
 当前配置：
 
 ```text
-电源键         -> ESC
+电源键 (F19) 短按 -> LALT+X
+电源键 (F19) 长按 800ms -> 立即点按 LALT+F4
 返回键 (F15) -> LCTRL+Z
-菜单键         -> LALT+TAB
-直播键         -> LALT+X
+主页键 (F16) 抬起 -> 点按 LWIN+TAB
+菜单键 (F17) -> LALT+TAB
+直播键 (F18) -> ESC
 ```
 
-四个方向键配置为自身，状态机自动放行。音量±目前只由驱动修复为 F13/F14，目标映射留空。
+四个方向键配置为自身，状态机自动放行。音量±目前只由驱动修复为 F13/F14，目标映射留空。所有组合键映射都应以 filter 生成的 F13-F24 为源；不要把 Home、Apps、OEM_3、Enter 或方向键等共享 VK 直接写成映射源。
 
-自动测试覆盖：配置解析、同键放行、重复 down 去重、up 释放、注入事件放行，以及真实 `SendInput` 的 `Ctrl down -> Z down -> Z up -> Ctrl up` 顺序。
+普通映射保持目标组合直到源键抬起；`TAP` 映射在源键抬起后原子点按。`HOLD <ms>` 由 hook pump 的 25ms Win32 timer 判定：到阈值立即触发一次 long action，继续按住不重复，松开不补发；阈值前松开则执行 short action。定时器使用 `SetTimer(NULL, ...)` 返回的实际 ID（Windows 不保证保留请求 ID）。
+
+主页必须使用 `TAP`：若按住 F16 的同时注入并保持 Win，Windows 会识别保留快捷键 `Win+F16` 并显示“滑动以关闭电脑”。等 F16 抬起后再原子点按 Win+Tab 可完全隔离该组合。
+
+自动测试覆盖：配置解析、短按/长按阈值、长按只触发一次、长按后下一次短按恢复、同键放行、重复 down 去重、up 释放、注入事件放行、物理 Home/Apps/反引号/Power 放行，以及真实 `SendInput` 的 `Ctrl down -> Z down -> Z up -> Ctrl up` 顺序。
 
 ## 技术栈约束
 - 编译: .NET Framework 4.8 csc.exe (无 .NET SDK, 有 .NET 8 runtime)
