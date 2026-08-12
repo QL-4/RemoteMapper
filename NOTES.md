@@ -2,9 +2,9 @@
 
 ## 设备
 - 名称: 小米蓝牙语音遥控器
-- BLE MAC: C0:5D:39:XX:XX:XX
-- 适配器: xx:xx:xx:xx:xx:xx
-- BLE Device Id: `BluetoothLE#BluetoothLExx:xx:xx:xx:xx:xx-c0:5d:39:xx:xx:xx`
+- BLE MAC 前缀: C0:5D:39 (Xiaomi OUI；完整 MAC 属个人设备标识，已从仓库历史中脱敏)
+- 适配器: 本机蓝牙适配器 MAC（未公开）
+- BLE Device Id: `BluetoothLE#BluetoothLE<适配器MAC>-c0:5d:39:<剩余>`，按厂商前缀匹配
 - HID 层 VID/PID: 2717 / 32B8
 
 ## GATT 服务全景
