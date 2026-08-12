@@ -22,8 +22,8 @@ class RemoteMic {
 
     // ===== audio params (locked in Phase 2) =====
     const int SR = 16000;
-    const int FRAME = 120;        // bytes per BLE audio frame
-    const int FRAME_SAMPLES = 240; // 120 bytes * 2 nibbles
+    const int FRAME = 120;        // default bytes per BLE audio frame (actual from CAPS → frameSize)
+    const int FRAME_SAMPLES = 240; // default samples per frame (FRAME * 2)
     static readonly int[] STEP = { 7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767 };
     static readonly int[] IDX = { -1,-1,-1,-1,2,4,6,8 };
     const double GAIN = 8.0;  // legacy fixed gain (unused when AGC on)
@@ -40,6 +40,15 @@ class RemoteMic {
     static int predictor = 0, stepIndex = 0;
     static short lastSample = 0;     // for cross-frame lowpass continuity
     static short prevDecoded = 0;    // for cross-frame declip continuity
+
+    // ===== ATVV negotiated parameters (updated from CAPS / AUDIO_START) =====
+    static int frameSize = 120;        // bytes per audio frame (from CAPS response, default 120)
+    static byte sessionId = 0;         // ATVV session ID (from AUDIO_START, used in MIC_EXTEND)
+    // AUDIO_SYNC: pending decoder reset applied before next decoded frame
+    static bool syncPending = false;
+    static int syncPredictor = 0, syncStepIndex = 0;
+    // Frame accumulator: handles fragmented or merged BLE audio notifications
+    static readonly List<byte> audioPending = new List<byte>(256);
 
     // ===== key injection worker thread (avoids doing SendInput inside hook/WinRT callbacks) =====
     sealed class KeyAction {
@@ -161,7 +170,7 @@ class RemoteMic {
         // keepalive loop
         while (true) {
             await Task.Delay(5000);
-            try { await WriteCmd(new byte[] { 0x0E, 0x00 }); } catch { } // MIC_EXTEND
+            try { await WriteCmd(new byte[] { 0x0E, sessionId }); } catch { } // MIC_EXTEND (real session ID)
         }
     }
 
@@ -172,9 +181,11 @@ class RemoteMic {
             byte op = b[0];
             // AUDIO_START with HTT reason: byte1 == 0x03
             if (op == 0x04 && b.Length >= 2 && b[1] == 0x03) {
-                // Voice button PRESSED
+                // Voice button PRESSED (AUDIO_START with HTT reason)
+                sessionId = (b.Length >= 4) ? b[3] : (byte)0;
                 Console.WriteLine("\n[VOICE] >>> button PRESSED (HTT) -> hotkey DOWN, start streaming");
                 predictor = 0; stepIndex = 0; lastSample = 0; prevDecoded = 0; agcPeak = 1000;
+                syncPending = false; audioPending.Clear();
                 totalFramesPlayed = 0; sessionStart = DateTime.Now;
                 if (dumpEnabled) dumpSamples = new System.Collections.Generic.List<short>();
                 state = State.Talking;
@@ -185,6 +196,7 @@ class RemoteMic {
                 Console.WriteLine("[VOICE] <<< button RELEASED (HTT) -> hotkey UP, stop streaming" +
                     (state == State.Talking ? "  (" + totalFramesPlayed + " frames, " + (DateTime.Now - sessionStart).TotalSeconds.ToString("0.0") + "s)" : ""));
                 state = State.Idle;
+                audioPending.Clear();
                 if (dumpEnabled && dumpSamples != null && dumpSamples.Count > 0) {
                     string path = @"D:\Projects\RemoteMapper\rt_dump_" + DateTime.Now.ToString("HHmmss") + ".wav";
                     WriteWav(path, dumpSamples.ToArray(), SR);
@@ -196,9 +208,23 @@ class RemoteMic {
             else if (op == 0x00 && b.Length >= 2 && b[1] == 0x00) {
                 Console.WriteLine("[VOICE] MIC_CLOSED");
                 state = State.Idle;
+                audioPending.Clear();
             }
-            else if (op == 0x0B) {
-                // CAPS_RESP
+            else if (op == 0x0B && b.Length >= 7) {
+                // CAPS_RESP: parse version, codec, frame size
+                int ver = (b[1] << 8) | b[2];
+                int fs = (b[5] << 8) | b[6];
+                if (fs > 0) frameSize = fs;
+                int codec = (b.Length >= 4) ? b[3] : 0;
+                Console.WriteLine("[ATVV] CAPS v" + ver + " codec=0x" + codec.ToString("X2") + " frame=" + frameSize);
+            }
+            else if (op == 0x0A && b.Length >= 7) {
+                // AUDIO_SYNC: decoder resets predictor/stepIndex before next frame
+                int pred = (b[4] << 8) | b[5];
+                if (pred >= 32768) pred -= 65536;
+                syncPredictor = pred;
+                syncStepIndex = b[6];
+                syncPending = true;
             }
         };
     }
@@ -207,35 +233,56 @@ class RemoteMic {
         return (s, e) => {
             if (state != State.Talking) return;
             var b = ToB(e.CharacteristicValue);
-            if (b.Length != FRAME) {
-                // unexpected; decode what we have
+            int fs = frameSize;
+            // Fast path: exact frame, no pending fragments, no sync — identical to original behavior
+            if (audioPending.Count == 0 && b.Length == fs && !syncPending) {
+                DecodeFrame(b, fs);
+                return;
             }
-            var samples = new short[FRAME_SAMPLES];
-            int pred = predictor, si = stepIndex;
-            int n = Math.Min(b.Length, FRAME);
-            int k = 0;
-            for (int i = 0; i < n; i++) {
-                samples[k++] = (short)Nibble(b[i] >> 4, ref pred, ref si);
-                samples[k++] = (short)Nibble(b[i] & 0xF, ref pred, ref si);
+            // Accumulate fragmented/merged notifications, decode complete frames
+            audioPending.AddRange(b);
+            while (audioPending.Count >= fs) {
+                byte[] frame = new byte[fs];
+                audioPending.CopyTo(0, frame, 0, fs);
+                audioPending.RemoveRange(0, fs);
+                DecodeFrame(frame, fs);
             }
-            predictor = pred; stepIndex = si;
-            // post-process: declip (within frame), lowpass (cross-frame), AGC
-            Declip(samples);
-            Lowpass(samples);
-            for (int i = 0; i < samples.Length; i++) {
-                double v = samples[i];
-                double a = v < 0 ? -v : v;
-                if (a > agcPeak) agcPeak = a; else agcPeak *= AGC_DECAY;
-                double g = Math.Min(AGC_MAX_GAIN, AGC_TARGET / Math.Max(agcPeak, AGC_FLOOR));
-                v *= g;
-                // soft clip (tanh-like)
-                if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
-                samples[i] = (short)v;
-            }
-            streamer.Enqueue(samples);
-            if (dumpEnabled) dumpSamples.AddRange(samples);
-            Interlocked.Increment(ref totalFramesPlayed);
         };
+    }
+
+    // Decode one complete ADPCM frame + post-process (declip, lowpass, AGC) + enqueue to VB-Cable
+    static void DecodeFrame(byte[] data, int fs) {
+        // Apply pending AUDIO_SYNC reset before first nibble of this frame
+        if (syncPending) {
+            predictor = syncPredictor;
+            stepIndex = syncStepIndex;
+            syncPending = false;
+        }
+        var samples = new short[fs * 2];
+        int pred = predictor, si = stepIndex;
+        int n = Math.Min(data.Length, fs);
+        int k = 0;
+        for (int i = 0; i < n; i++) {
+            samples[k++] = (short)Nibble(data[i] >> 4, ref pred, ref si);
+            samples[k++] = (short)Nibble(data[i] & 0xF, ref pred, ref si);
+        }
+        predictor = pred; stepIndex = si;
+        // post-process: declip (within frame), lowpass (cross-frame), AGC
+        Declip(samples);
+        Lowpass(samples);
+        for (int i = 0; i < samples.Length; i++) {
+            double v = samples[i];
+            double a = v < 0 ? -v : v;
+            if (a > agcPeak) agcPeak = a; else agcPeak *= AGC_DECAY;
+            double g = Math.Min(AGC_MAX_GAIN, AGC_TARGET / Math.Max(agcPeak, AGC_FLOOR));
+            v *= g;
+            // soft clip (tanh-like)
+            if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
+            samples[i] = (short)v;
+        }
+        streamer.Enqueue(samples);
+        if (dumpEnabled) dumpSamples.AddRange(samples);
+        Interlocked.Increment(ref totalFramesPlayed);
     }
 
     static int Nibble(int nibble, ref int predictor, ref int stepIndex) {

@@ -266,3 +266,19 @@ kbdclass -> kbdhid -> MiRemoteHidFilter -> mshidumdf
   - `KeySim.HoldCombo` 注入前的强制释放键从 F5 改为 F20；
   - 驱动 INF 版本 1.0.1.0；`RemoteKeyTest` 九键测试增加语音键 F20。
 - **部署**: 重新编译驱动 → `install-driver.ps1`（需 TESTSIGNING，装完重启）→ 重启 RemoteMic → `verify-keys.bat` 验证。
+
+## 2026-08-12 ATVV 协议健壮性增强
+
+参考 `HD838A/remote-mic-app`（GPL-3.0，仅看协议行为、未复制源码），在不改变现有行为的前提下增强 ATVV 音频链路的健壮性。所有改动在正常路径下与原版完全一致，只在边缘情况下提供额外保护：
+
+1. **解析 CAPS 响应**：原版发 `GET_CAPS` 后固定等待 600ms 直接 `MIC_OPEN`，忽略响应内容。现在解析 opcode `0x0B` 响应，提取 version / codec / frameSize，存入 `frameSize` 变量。实测本机遥控器返回 v256 (0x0100)、codec=0x02 (16kHz)、frame=120，与硬编码默认值一致，行为不变。
+
+2. **处理 AUDIO_SYNC**：原版完全忽略 opcode `0x0A`。现在解析其中的 predictor (bytes 4-5, 大端有符号) 和 stepIndex (byte 6)，在下一帧解码前重置 ADPCM 解码器状态。若 BLE 传输中丢包导致解码器偏差，同步包可重新校准；若设备不发同步包（当前情况），则无任何影响。
+
+3. **帧累积器 (FrameAccumulator)**：原版假设每次 BLE audio notification 恰好 120 bytes。现在用 `List<byte>` 缓冲，每满 `frameSize` 取一帧解码。当 notification 被分片或合并时仍能正确解码。正常路径（恰好 120 bytes、无 pending）走快速路径，零额外开销。
+
+4. **真实 session ID**：原版 `MIC_EXTEND` 固定用 session ID 0。现在从 `AUDIO_START` (opcode 0x04) 的 byte[3] 提取真实 session ID，用于 keepalive 的 `MIC_EXTEND`。本机遥控器 session ID 为 0 时行为不变。
+
+5. **会话边界清理**：在 `AUDIO_START`、`AUDIO_STOP`、`MIC_CLOSED` 时清空帧累积器和同步标志，防止上一会话残留数据泄漏到新会话。
+
+改动文件：`src/RemoteMic.cs`（新增字段 + `DecodeFrame` 方法、重构 `MakeAudioHandler`、增强 `MakeCtlHandler`）。
