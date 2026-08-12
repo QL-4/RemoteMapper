@@ -35,12 +35,12 @@ class RemoteKeyTest {
             bool up=wParam==(IntPtr)WM_KEYUP || wParam==(IntPtr)WM_SYSKEYUP;
             if(down && !got) {
                 gotVk=k.vk; gotScan=k.scan; gotFlags=k.flags; got=true;
-                // Swallow only remote-specific F13-F19. Physical keyboard keys remain usable.
-                if(k.vk>=0x7C && k.vk<=0x82)return (IntPtr)1;
+                // Swallow only remote-specific F13-F20. Physical keyboard keys remain usable.
+                if(k.vk>=0x7C && k.vk<=0x83)return (IntPtr)1;
             }
             if(up && got && k.vk==gotVk) {
                 released=true;
-                if(k.vk>=0x7C && k.vk<=0x82)return (IntPtr)1;
+                if(k.vk>=0x7C && k.vk<=0x83)return (IntPtr)1;
             }
         }
         return CallNextHookEx(hook,nCode,wParam,lParam);

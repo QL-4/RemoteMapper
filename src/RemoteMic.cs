@@ -136,7 +136,7 @@ class RemoteMic {
         Console.WriteLine(" OK");
         StartKeyWorker();
         KeyMapper.Load("keymap.txt");
-        F5Blocker.Start();
+        VoiceKeyBlocker.Start();
         if (DeviceSwitch.FindCable())
             Console.WriteLine("[DEV] CABLE Output found as device; will auto-switch default capture while talking");
         else
@@ -332,7 +332,7 @@ class RemoteMic {
             try { KeySim.ReleaseCombo(); } catch { }
             if (streamer != null) streamer.Stop();
             try { DeviceSwitch.Restore(); } catch { }
-            try { F5Blocker.Stop(); } catch { }
+            try { VoiceKeyBlocker.Stop(); } catch { }
             Environment.Exit(0);
         };
         try { Run().GetAwaiter().GetResult(); }
@@ -350,10 +350,13 @@ class TeeWriter : System.IO.TextWriter {
     public override void Write(char v) { _c.Write(v); try { _f.Write(v); _f.Flush(); } catch { } }
 }
 
-// ===== F5 blocker: low-level keyboard hook swallows remote's F5 HID spam =====
-// Remote voice button emits F5 via HID which pollutes the injected hotkey combo.
-// We swallow ALL F5 events while running. Trigger still works via BLE CTL channel.
-class F5Blocker {
+// ===== VoiceKeyBlocker: swallows the remote voice button's F20 spam =====
+// The remote voice button used to arrive as F5 (HID), which polluted apps and
+// the injected hotkey combo; the driver now remaps it to F20 (0x83) so it can
+// never collide with the user's physical F5. F20 is reserved as the remote-only
+// voice key in this setup, so swallowing ALL F20 events is intentional. Trigger
+// still works via the BLE CTL channel.
+class VoiceKeyBlocker {
     delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] static extern IntPtr SetWindowsHookEx(int idHook, HookProc lpfn, IntPtr hMod, uint dwThreadId);
     [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hhk);
@@ -366,7 +369,7 @@ class F5Blocker {
     const int WH_KEYBOARD_LL = 13;
     const int WM_KEYDOWN = 0x0100, WM_KEYUP = 0x0101, WM_SYSKEYDOWN = 0x0104, WM_SYSKEYUP = 0x0105;
     const uint LLKHF_INJECTED = 0x10, LLKHF_LOWER_IL_INJECTED = 0x02;
-    const ushort VK_F5 = 0x74;
+    const ushort VK_F20 = 0x83; // driver remaps remote voice button HID F5 -> F20
     [StructLayout(LayoutKind.Sequential)]
     struct KBDLLHOOKSTRUCT { public uint vkCode; public uint scanCode; public uint flags; public uint time; public IntPtr extra; }
     static HookProc proc = HookCb;
@@ -375,7 +378,7 @@ class F5Blocker {
     static uint pumpTid;
     const uint WM_TIMER = 0x0113, WM_APP_REHOOK = 0x8000;
     static UIntPtr keymapTimerId = UIntPtr.Zero;
-    static volatile int f5Count = 0;
+    static volatile int f20Count = 0;
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] static extern bool PostThreadMessage(uint tid, uint msg, IntPtr w, IntPtr l);
 
@@ -383,7 +386,7 @@ class F5Blocker {
         try {
             if (nCode >= 0) {
                 var k = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
-                if (k.vkCode == VK_F5) { f5Count++; return (IntPtr)1; }   // swallow voice-button spam
+                if (k.vkCode == VK_F20) { f20Count++; return (IntPtr)1; }   // swallow remote voice-button spam
 
                 int message = wParam.ToInt32();
                 bool down = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
@@ -408,7 +411,7 @@ class F5Blocker {
                 hhk = SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(null), 0);
                 keymapTimerId = SetTimer(IntPtr.Zero, (UIntPtr)1, 25, IntPtr.Zero);
                 if (keymapTimerId == UIntPtr.Zero) Console.WriteLine("[KEYMAP] timer install failed");
-                Console.WriteLine("[F5] blocker installed");
+                Console.WriteLine("[F20] voice-key blocker installed (remote voice key = F20, physical F5 passes)");
                 MSG m;
                 while (GetMessage(out m, IntPtr.Zero, 0, 0) > 0) {
                     // re-install hook request from keyworker thread (Resume)
@@ -421,8 +424,8 @@ class F5Blocker {
                     TranslateMessage(ref m);
                     DispatchMessage(ref m);
                 }
-            } catch (Exception ex) { Console.WriteLine("[F5] pump err: " + ex.Message); }
-        }) { IsBackground = true, Name = "f5pump" };
+            } catch (Exception ex) { Console.WriteLine("[VOICEKEY] pump err: " + ex.Message); }
+        }) { IsBackground = true, Name = "voicekeypump" };
         pump.Start();
     }
     [DllImport("user32.dll")] static extern bool TranslateMessage(ref MSG m);
@@ -693,7 +696,7 @@ class KeySim {
     const uint KEYEVENTF_SCANCODE = 0x0008;
     const ushort VK_RMENU = 0xA5;       // Right Alt
     const ushort VK_OEM_COMMA = 0xBC;   // ','
-    const ushort VK_F5 = 0x74;          // remote voice button = F5 (HID)
+    const ushort VK_F20 = 0x83;         // remote voice button = F20 (driver remaps HID F5 -> F20)
     const uint MAPVK_VK_TO_VSC = 0;
 
     static void Send(ushort vk, bool down) {
@@ -732,28 +735,28 @@ class KeySim {
         }
     }
     public static void HoldCombo() {
-        // The remote spams F5 while held. Our WH_KEYBOARD_LL hook marshals ALL
+        // The remote spams F20 while held. Our WH_KEYBOARD_LL hook marshals ALL
         // input (including our injected RAlt/Comma) through the pump thread, and
-        // the heavy F5 traffic disrupts injection timing. So: temporarily remove
+        // the heavy F20 traffic disrupts injection timing. So: temporarily remove
         // the hook, force-release every key for a clean slate, inject, then let the
         // pump thread re-install the hook.
-        F5Blocker.Suspend();
-        keybd_event((byte)VK_F5, (byte)MapVirtualKey(VK_F5, MAPVK_VK_TO_VSC), KEYEVENTF_KEYUP, UIntPtr.Zero);
+        VoiceKeyBlocker.Suspend();
+        keybd_event((byte)VK_F20, (byte)MapVirtualKey(VK_F20, MAPVK_VK_TO_VSC), KEYEVENTF_KEYUP, UIntPtr.Zero);
         keybd_event((byte)VK_RMENU, (byte)MapVirtualKey(VK_RMENU, MAPVK_VK_TO_VSC), KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, UIntPtr.Zero);
         keybd_event((byte)VK_OEM_COMMA, (byte)MapVirtualKey(VK_OEM_COMMA, MAPVK_VK_TO_VSC), KEYEVENTF_KEYUP, UIntPtr.Zero);
         Thread.Sleep(50);
         Send(VK_RMENU, true);
         Thread.Sleep(40);
         Send(VK_OEM_COMMA, true);
-        F5Blocker.Resume();
+        VoiceKeyBlocker.Resume();
         Console.WriteLine("[KEY] HOLD done");
     }
     public static void ReleaseCombo() {
-        F5Blocker.Suspend();
+        VoiceKeyBlocker.Suspend();
         Send(VK_OEM_COMMA, false);
         Thread.Sleep(20);
         Send(VK_RMENU, false);
-        F5Blocker.Resume();
+        VoiceKeyBlocker.Resume();
         Console.WriteLine("[KEY] RELEASE done");
     }
 }

@@ -11,9 +11,10 @@
 ```text
 音量加 -> F13    音量减 -> F14    返回键 -> F15
 主页键 -> F16    菜单键 -> F17    直播键 -> F18    电源键 -> F19
+语音键 -> F20（驱动把 HID F5 改成 F20，物理键盘 F5 不受影响）
 ```
 
-驱动源码、安装和回滚说明见 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。`RemoteMic.exe` 启动时读取 `keymap.txt`，提供全局源键→组合键映射。当前配置：电源短按→Alt+X、长按→Alt+F4；返回短按→Ctrl+Z、长按→Ctrl+Shift+Z；主页短按→Alt+Tab、长按→Task View；菜单不映射；直播→Esc。四个方向键保持原行为。
+驱动源码、安装和回滚说明见 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。`RemoteMic.exe` 启动时读取 `keymap.txt`，提供全局源键→组合键映射。当前配置：电源短按→Alt+Tab、长按→Task View；返回短按→Ctrl+Z、长按→Ctrl+Shift+Z；主页短按→Alt+X、长按→Alt+F4；音量加→Backspace；音量减→Delete；菜单不映射；直播→Esc。四个方向键保持原行为。
 
 ---
 
@@ -60,7 +61,7 @@
 [1/4] connecting to remote... OK (MI RC)
 [2/4] setting up ATVV service... OK
 [3/4] opening VB-Cable Input... OK
-[F5] blocker installed (remote voice-key HID F5 will be swallowed)
+[F20] voice-key blocker installed (remote voice key = F20, physical F5 passes)
 [DEV] CABLE Output found as device; will auto-switch default capture while talking
 [4/4] ATVV handshake... ready
 >> HOLD the voice button to talk. Release to stop.
@@ -122,13 +123,13 @@
 默认映射会在源键按住期间保持目标组合。`TAP` 表示等源键抬起后原子点按一次；`HOLD` 可配置长按阈值：
 
 ```text
-主页键 = 0x7F -> TAP LALT+TAB | HOLD 800 -> TASKVIEW
-电源键 = 0x82 -> TAP LALT+X | HOLD 800 -> TAP LALT+F4
+电源键 = 0x82 -> TAP LALT+TAB | HOLD 800 -> TASKVIEW
+主页键 = 0x7F -> TAP LALT+X | HOLD 800 -> TAP LALT+F4
 ```
 
-电源键在 800ms 前松开会点按 Alt+X；达到 800ms 时立即点按一次 Alt+F4，继续按住不重复，松开不补发。
+主页键在 800ms 前松开会点按 Alt+X；达到 800ms 时立即点按一次 Alt+F4，继续按住不重复，松开不补发。
 
-`TASKVIEW` 是系统动作：执行 `explorer.exe shell:::{3080F90E-D7AD-11D9-BD98-0000947B0257}` 打开任务视图，不注入 Win 键。主页长按必须使用它，因为 F16 物理保持期间发送 Win 会组成 Windows 保留快捷键 `Win+F16`，弹出“滑动以关闭电脑”；注入一个 F16 key-up 也不能可靠取消 HID 的物理保持状态。
+`TASKVIEW` 是系统动作：执行 `explorer.exe shell:::{3080F90E-D7AD-11D9-BD98-0000947B0257}` 打开任务视图，不注入 Win 键。电源长按使用它，避免给仍处于 HID 物理保持状态的源功能键叠加 Win 修饰键而触发 Windows 保留快捷键。
 
 映射通过同一个全局低级键盘钩子实现；程序自身注入事件会被忽略，避免递归。
 

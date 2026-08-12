@@ -86,7 +86,7 @@ class KeyMapConfigTests {
 
         var repositoryBindings = KeyMapConfig.ParseLines(File.ReadAllLines("keymap.txt"));
         var repositoryEngine = new KeyMapEngine(repositoryBindings);
-        Equal(4, repositoryEngine.BindingCount, "repository active binding count");
+        Equal(6, repositoryEngine.BindingCount, "repository active binding count");
         MappedKeyEvent[] repositoryActions;
 
         Equal(true, repositoryEngine.HandleTimed(0x7E, true, false, 100, out repositoryActions), "repository F15 short down");
@@ -102,20 +102,28 @@ class KeyMapConfigTests {
         Equal(true, repositoryEngine.HandleTimed(0x82, true, false, 2000, out repositoryActions), "repository F19 short down");
         Equal(true, repositoryEngine.HandleTimed(0x82, false, false, 2500, out repositoryActions), "repository F19 short up");
         Equal((ushort)0xA4, repositoryActions[0].Combo[0], "repository F19 short LALT");
-        Equal((ushort)0x58, repositoryActions[0].Combo[1], "repository F19 short X");
+        Equal((ushort)0x09, repositoryActions[0].Combo[1], "repository F19 short TAB");
         Equal(true, repositoryEngine.HandleTimed(0x82, true, false, 3000, out repositoryActions), "repository F19 long down");
         repositoryActions = repositoryEngine.TakeDueActions(3800);
-        Equal((ushort)0x73, repositoryActions[0].Combo[1], "repository F19 long F4");
+        Equal(KeyActionKind.TaskView, repositoryActions[0].Action, "repository F19 long TASKVIEW");
         repositoryEngine.HandleTimed(0x82, false, false, 3900, out repositoryActions);
 
         Equal(true, repositoryEngine.HandleTimed(0x7F, true, false, 4000, out repositoryActions), "repository F16 short down");
         Equal(true, repositoryEngine.HandleTimed(0x7F, false, false, 4100, out repositoryActions), "repository F16 short up");
         Equal((ushort)0xA4, repositoryActions[0].Combo[0], "repository F16 short LALT");
-        Equal((ushort)0x09, repositoryActions[0].Combo[1], "repository F16 short TAB");
+        Equal((ushort)0x58, repositoryActions[0].Combo[1], "repository F16 short X");
         Equal(true, repositoryEngine.HandleTimed(0x7F, true, false, 5000, out repositoryActions), "repository F16 long down");
         repositoryActions = repositoryEngine.TakeDueActions(5800);
-        Equal(KeyActionKind.TaskView, repositoryActions[0].Action, "repository F16 long TASKVIEW");
+        Equal((ushort)0xA4, repositoryActions[0].Combo[0], "repository F16 long LALT");
+        Equal((ushort)0x73, repositoryActions[0].Combo[1], "repository F16 long F4");
         repositoryEngine.HandleTimed(0x7F, false, false, 5900, out repositoryActions);
+
+        Equal(true, repositoryEngine.Handle(0x7C, true, false, out action), "repository F13 volume up mapped");
+        Equal((ushort)0x08, action.Combo[0], "repository F13 BACK");
+        repositoryEngine.Handle(0x7C, false, false, out action);
+        Equal(true, repositoryEngine.Handle(0x7D, true, false, out action), "repository F14 volume down mapped");
+        Equal((ushort)0x2E, action.Combo[0], "repository F14 DELETE");
+        repositoryEngine.Handle(0x7D, false, false, out action);
 
         Equal(false, repositoryEngine.Handle(0x80, true, false, out action), "repository F17 menu disabled");
         Equal(true, repositoryEngine.Handle(0x81, true, false, out action), "repository F18 live mapped");

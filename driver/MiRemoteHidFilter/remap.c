@@ -11,6 +11,12 @@
 #define HID_USAGE_KEYBOARD_LIVE          0x35
 #define HID_USAGE_KEYBOARD_POWER         0x66
 
+// The remote voice button arrives as keyboard-page usage 0x3E (F5). Remap it
+// to F20 so it cannot collide with the user's physical F5. F20 is reserved as
+// the remote-only voice key in this setup, so RemoteMic can safely swallow it.
+#define HID_USAGE_KEYBOARD_F5            0x3E
+#define HID_USAGE_KEYBOARD_F20           0x6F
+
 // Standard keyboard usages understood by Windows kbdhid.sys.
 #define HID_USAGE_KEYBOARD_F13           0x68
 #define HID_USAGE_KEYBOARD_F14           0x69
@@ -55,6 +61,9 @@ MiRemoteRemapReport(
         return TRUE;
     case HID_USAGE_KEYBOARD_POWER:
         Report[3] = HID_USAGE_KEYBOARD_F19;
+        return TRUE;
+    case HID_USAGE_KEYBOARD_F5:
+        Report[3] = HID_USAGE_KEYBOARD_F20;
         return TRUE;
     default:
         return FALSE;

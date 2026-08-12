@@ -10,6 +10,7 @@ echo   Home         = F16,   VK 0x7F
 echo   Menu         = F17,   VK 0x80
 echo   Live         = F18,   VK 0x81
 echo   Power        = F19,   VK 0x82
+echo   Voice        = F20,   VK 0x83
 echo.
 tools\RemoteKeyTest.exe
 pause

@@ -26,4 +26,4 @@ if ($LASTEXITCODE -ne 0) { throw "pnputil failed with exit code $LASTEXITCODE" }
 
 Write-Host ''
 Write-Host 'Driver package installed. Restart Windows so the protected keyboard stack is rebuilt.' -ForegroundColor Green
-Write-Host 'After restart, stop RemoteMic and run verify-keys.bat to verify VK_UP/F13-F19.' -ForegroundColor Yellow
+Write-Host 'After restart, stop RemoteMic and run verify-keys.bat to verify VK_UP/F13-F20.' -ForegroundColor Yellow

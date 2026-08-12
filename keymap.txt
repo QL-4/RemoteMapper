@@ -1,6 +1,6 @@
-# RemoteMapper keymap config  (updated 2026-08-08)
+# RemoteMapper keymap config  (updated 2026-08-11)
 # RemoteMic.exe 启动时读取本文件；修改后需重启 RemoteMic 才会生效。
-# 驱动先把需要全局映射的遥控器键变成 F13-F19，再由本文件决定目标快捷键。
+# 驱动把可配置遥控器键变成 F13-F19，再由本文件决定目标快捷键；语音键另改为保留的 F20，由 VoiceKeyBlocker 直接吞掉，不进入本配置。
 #
 # 完整 HID 映射 (Android getevent 抓取, 全部 Usage Page 0x0007 键盘页):
 #   电源键   HID 0x066 -> 驱动改为 HID F19 -> VK 0x82 (VK_F19)
@@ -15,6 +15,9 @@
 #   音量减   HID 0x081 -> 驱动改为 HID F14 -> VK 0x7D (VK_F14)
 #   菜单键   HID 0x065 -> 驱动改为 HID F17 -> VK 0x80 (VK_F17)
 #   直播键   HID 0x035 -> 驱动改为 HID F18 -> VK 0x81 (VK_F18)
+#   语音键   HID 0x03E(F5) -> 驱动改为 HID F20 -> VK 0x83 (VK_F20)
+#            (RemoteMic 的 VoiceKeyBlocker 吞掉 F20，不放行到前台应用；
+#             触发信号走 BLE CTL 通道。物理键盘 F5 不受影响。)
 #
 # 每行格式:
 #   <键名> = <vk> -> <目标组合>
@@ -31,15 +34,15 @@
 #   HOME  END  PGUP  PGDN  LEFT  UP  RIGHT  DOWN  MENU  PRTSCR
 # 特殊: ALT+TAB (任务切换, 注入会弹出切换器, 放开 Alt 时切换)
 
-电源键    = 0x82 -> TAP LALT+X | HOLD 800 -> TAP LALT+F4
+电源键    = 0x82 -> TAP LALT+TAB | HOLD 800 -> TASKVIEW
 确定键    = 0x0D ->
 方向上    = 0x26 -> UP
 方向下    = 0x28 -> DOWN
 方向左    = 0x25 -> LEFT
 方向右    = 0x27 -> RIGHT
 返回键    = 0x7E -> LCTRL+Z | HOLD 800 -> LCTRL+LSHIFT+Z
-主页键    = 0x7F -> TAP LALT+TAB | HOLD 800 -> TASKVIEW
-音量加    = 0x7C ->
-音量减    = 0x7D ->
+主页键    = 0x7F -> TAP LALT+X | HOLD 800 -> TAP LALT+F4
+音量加    = 0x7C -> BACK
+音量减    = 0x7D -> DELETE
 菜单键    = 0x80 ->
 直播键    = 0x81 -> ESC

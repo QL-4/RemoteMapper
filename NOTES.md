@@ -258,3 +258,11 @@ kbdclass -> kbdhid -> MiRemoteHidFilter -> mshidumdf
   - BLE Device Id 不含 VID/PID，按 MAC c0:5d:39 匹配
 
 
+## 2026-08-11 修复: 物理键盘 F5 被 F5Blocker 吞掉 (问题3 的副作用)
+- **现象**: RemoteMic 运行期间物理键盘 F5 完全失效（浏览器刷新、IDE 调试等全部无响应）。
+- **根因**: 问题3 的 F5Blocker 钩子无条件吞掉所有 VK 0x74 (F5)——遥控器语音键的 HID F5 刷屏与物理键盘 F5 在 WH_KEYBOARD_LL 层完全无法区分，只能全吞。
+- **修复**: 下沉到驱动层解决——`MiRemoteHidFilter` 把语音键 HID usage 0x3E (F5) 改写成 0x6F (F20)。本方案将 F20 保留为遥控器专用语音键（本机物理键盘不产生），因此:
+  - `VoiceKeyBlocker`（原 F5Blocker）改吞 VK_F20 (0x83)，语音键刷屏依旧不落前台，物理 F5 完全放行；
+  - `KeySim.HoldCombo` 注入前的强制释放键从 F5 改为 F20；
+  - 驱动 INF 版本 1.0.1.0；`RemoteKeyTest` 九键测试增加语音键 F20。
+- **部署**: 重新编译驱动 → `install-driver.ps1`（需 TESTSIGNING，装完重启）→ 重启 RemoteMic → `verify-keys.bat` 验证。

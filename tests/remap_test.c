@@ -34,6 +34,7 @@ int main(void)
     ExpectRemap(0x65, 0x6C, "menu -> F17");
     ExpectRemap(0x35, 0x6D, "live -> F18");
     ExpectRemap(0x66, 0x6E, "power -> F19");
+    ExpectRemap(0x3E, 0x6F, "voice F5 -> F20");
 
     {
         UCHAR wrongId[4] = { 0x06, 0x00, 0x00, 0x4A };
