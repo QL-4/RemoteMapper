@@ -5,13 +5,28 @@ using System.Globalization;
 public enum KeyActionKind { Combo, TaskView }
 
 public sealed class KeyBinding {
-    public string Name { get; private set; }
-    public ushort SourceVk { get; private set; }
-    public ushort[] Combo { get; private set; }
-    public uint LongPressMs { get; private set; }
-    public ushort[] LongCombo { get; private set; }
-    public KeyActionKind LongAction { get; private set; }
-    public bool Tap { get; private set; }
+    public string Name { get; set; }
+    public ushort SourceVk { get; set; }
+    public ushort[] Combo { get; set; }
+    public bool Tap { get; set; }
+
+    // Long press (mutually exclusive with Repeat)
+    public uint LongPressMs { get; set; }
+    public ushort[] LongCombo { get; set; }
+    public KeyActionKind LongAction { get; set; }
+
+    // Double click
+    public uint DoubleMs { get; set; }
+    public ushort[] DoubleCombo { get; set; }
+    public KeyActionKind DoubleAction { get; set; }
+
+    // Hold-repeat (mutually exclusive with Long)
+    public uint RepeatDelay { get; set; }
+    public uint RepeatInterval { get; set; }
+    public ushort[] RepeatCombo { get; set; }
+    public KeyActionKind RepeatAction { get; set; }
+
+    public KeyBinding() { }
 
     public KeyBinding(string name, ushort sourceVk, ushort[] combo)
         : this(name, sourceVk, combo, false, 0, null) { }
@@ -48,12 +63,9 @@ public static class KeyMapConfig {
             string targetText = line.Substring(arrow + 2).Trim();
             if (targetText.Length == 0) continue;
 
-            string longText = null;
-            int separator = targetText.IndexOf('|');
-            if (separator >= 0) {
-                longText = targetText.Substring(separator + 1).Trim();
-                targetText = targetText.Substring(0, separator).Trim();
-            }
+            // Split on | to separate click target from gesture segments (DOUBLE/HOLD/REPEAT)
+            string[] segments = targetText.Split('|');
+            string clickText = segments[0].Trim();
 
             string[] sourceParts = sourceText.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
             if (sourceParts.Length == 0) continue;
@@ -62,39 +74,103 @@ public static class KeyMapConfig {
             if (!TryParseKey(sourceParts[0], out sourceVk))
                 throw new FormatException("Unknown source key in keymap: " + sourceParts[0]);
 
-            bool tap = StripPrefix(ref targetText, "TAP");
-            ushort[] combo = ParseCombo(targetText);
+            bool tap = StripPrefix(ref clickText, "TAP");
+            ushort[] combo = ParseCombo(clickText);
             if (combo.Length == 0) continue;
 
-            uint longPressMs = 0;
-            ushort[] longCombo = null;
-            KeyActionKind longAction = KeyActionKind.Combo;
-            if (longText != null) {
-                if (!longText.StartsWith("HOLD ", StringComparison.OrdinalIgnoreCase))
-                    throw new FormatException("Expected HOLD in keymap: " + longText);
-                int longArrow = longText.IndexOf("->", StringComparison.Ordinal);
-                if (longArrow < 0)
-                    throw new FormatException("Expected -> after HOLD in keymap: " + longText);
+            var binding = new KeyBinding(name, sourceVk, combo, tap, 0, null, KeyActionKind.Combo);
 
-                string threshold = longText.Substring(5, longArrow - 5).Trim();
-                if (!UInt32.TryParse(threshold, NumberStyles.Integer, CultureInfo.InvariantCulture, out longPressMs) || longPressMs == 0)
-                    throw new FormatException("Invalid HOLD threshold in keymap: " + threshold);
+            // Parse gesture segments
+            for (int i = 1; i < segments.Length; i++) {
+                string seg = segments[i].Trim();
+                if (seg.Length == 0) continue;
 
-                string longTarget = longText.Substring(longArrow + 2).Trim();
-                if (String.Equals(longTarget, "TASKVIEW", StringComparison.OrdinalIgnoreCase)) {
-                    longAction = KeyActionKind.TaskView;
-                    longCombo = new ushort[0];
-                } else {
-                    StripPrefix(ref longTarget, "TAP");
-                    longCombo = ParseCombo(longTarget);
-                    if (longCombo.Length == 0)
-                        throw new FormatException("Empty HOLD target in keymap: " + longText);
-                }
+                if (seg.StartsWith("DOUBLE ", StringComparison.OrdinalIgnoreCase))
+                    ParseSegmentDouble(seg, binding);
+                else if (seg.StartsWith("HOLD ", StringComparison.OrdinalIgnoreCase))
+                    ParseSegmentHold(seg, binding);
+                else if (seg.StartsWith("REPEAT ", StringComparison.OrdinalIgnoreCase))
+                    ParseSegmentRepeat(seg, binding);
+                else
+                    throw new FormatException("Unknown gesture in keymap: " + seg);
             }
 
-            result.Add(new KeyBinding(name, sourceVk, combo, tap, longPressMs, longCombo, longAction));
+            // HOLD and REPEAT are mutually exclusive
+            if (binding.LongCombo != null && binding.RepeatCombo != null)
+                throw new FormatException("HOLD and REPEAT are mutually exclusive in keymap: " + line);
+
+            result.Add(binding);
         }
         return result;
+    }
+
+    // "DOUBLE <ms> -> <target>"
+    static void ParseSegmentDouble(string seg, KeyBinding b) {
+        int arrowPos = seg.IndexOf("->", StringComparison.Ordinal);
+        if (arrowPos < 0)
+            throw new FormatException("Expected -> after DOUBLE in keymap: " + seg);
+        string msText = seg.Substring(7, arrowPos - 7).Trim();
+        uint ms;
+        if (!UInt32.TryParse(msText, NumberStyles.Integer, CultureInfo.InvariantCulture, out ms) || ms == 0)
+            throw new FormatException("Invalid DOUBLE timeout in keymap: " + msText);
+        KeyActionKind action;
+        ushort[] combo = ParseActionTarget(seg.Substring(arrowPos + 2), out action);
+        b.DoubleMs = ms;
+        b.DoubleCombo = combo;
+        b.DoubleAction = action;
+    }
+
+    // "HOLD <ms> -> <target>"
+    static void ParseSegmentHold(string seg, KeyBinding b) {
+        int arrowPos = seg.IndexOf("->", StringComparison.Ordinal);
+        if (arrowPos < 0)
+            throw new FormatException("Expected -> after HOLD in keymap: " + seg);
+        string msText = seg.Substring(5, arrowPos - 5).Trim();
+        uint ms;
+        if (!UInt32.TryParse(msText, NumberStyles.Integer, CultureInfo.InvariantCulture, out ms) || ms == 0)
+            throw new FormatException("Invalid HOLD threshold in keymap: " + msText);
+        KeyActionKind action;
+        ushort[] combo = ParseActionTarget(seg.Substring(arrowPos + 2), out action);
+        b.LongPressMs = ms;
+        b.LongCombo = combo;
+        b.LongAction = action;
+    }
+
+    // "REPEAT <delay> <interval> -> <target>"
+    static void ParseSegmentRepeat(string seg, KeyBinding b) {
+        int arrowPos = seg.IndexOf("->", StringComparison.Ordinal);
+        if (arrowPos < 0)
+            throw new FormatException("Expected -> after REPEAT in keymap: " + seg);
+        string nums = seg.Substring(7, arrowPos - 7).Trim();
+        string[] parts = nums.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2)
+            throw new FormatException("REPEAT requires <delay> <interval> in keymap: " + nums);
+        uint delay, interval;
+        if (!UInt32.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out delay) || delay == 0)
+            throw new FormatException("Invalid REPEAT delay in keymap: " + parts[0]);
+        if (!UInt32.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out interval) || interval == 0)
+            throw new FormatException("Invalid REPEAT interval in keymap: " + parts[1]);
+        KeyActionKind action;
+        ushort[] combo = ParseActionTarget(seg.Substring(arrowPos + 2), out action);
+        b.RepeatDelay = delay;
+        b.RepeatInterval = interval;
+        b.RepeatCombo = combo;
+        b.RepeatAction = action;
+    }
+
+    // Parse a target: "TAP <combo>", "<combo>", or "TASKVIEW"
+    static ushort[] ParseActionTarget(string text, out KeyActionKind action) {
+        action = KeyActionKind.Combo;
+        text = text.Trim();
+        if (String.Equals(text, "TASKVIEW", StringComparison.OrdinalIgnoreCase)) {
+            action = KeyActionKind.TaskView;
+            return new ushort[0];
+        }
+        StripPrefix(ref text, "TAP");
+        ushort[] combo = ParseCombo(text);
+        if (combo.Length == 0)
+            throw new FormatException("Empty action target in keymap: " + text);
+        return combo;
     }
 
     static bool StripPrefix(ref string text, string prefix) {

@@ -282,3 +282,39 @@ kbdclass -> kbdhid -> MiRemoteHidFilter -> mshidumdf
 5. **会话边界清理**：在 `AUDIO_START`、`AUDIO_STOP`、`MIC_CLOSED` 时清空帧累积器和同步标志，防止上一会话残留数据泄漏到新会话。
 
 改动文件：`src/RemoteMic.cs`（新增字段 + `DecodeFrame` 方法、重构 `MakeAudioHandler`、增强 `MakeCtlHandler`）。
+
+## 2026-08-13 手势引擎：双击 + 按住连发
+
+参考 `HD838A/remote-mic-app` 的手势状态机设计，为 `keymap.txt` 增加 `DOUBLE` 和 `REPEAT` 手势类型。不改变任何现有映射的行为——只有显式配置了 `DOUBLE` 或 `REPEAT` 的键才会激活新逻辑。
+
+### keymap.txt 新语法
+
+```text
+# 单击 + 双击 + 长按
+菜单键 = 0x80 -> TAP X | DOUBLE 300 -> TAP Y | HOLD 550 -> TAP Z
+
+# 单击 + 按住连发 (与 HOLD 互斥)
+音量加 = 0x7C -> TAP BACK | REPEAT 350 100 -> TAP BACK
+```
+
+- **DOUBLE <ms>**：松开后等待 ms 毫秒，若无第二次按下则触发单击；有第二次按下则触发双击动作。单击动作因此被延迟。
+- **REPEAT <delay> <interval>**：按住 delay 毫秒后触发第一次，之后每隔 interval 毫秒重复触发。松开即停。与 HOLD 互斥（解析器会报错）。
+- **HOLD <ms>**：与现有行为一致，到阈值立即触发一次。
+- DOUBLE 可以与 HOLD 或 REPEAT 共存。
+
+### 状态机重构
+
+`KeyMapEngine` 从三个并行集合 (`held`/`downTimes`/`longFired`) 重构为 per-key `KeyState` 对象，跟踪：
+- `IsHeld` / `PressTime` / `Fired` / `NextRepeat`
+- `WaitingDouble` / `DoubleDeadline` / `PressCount`
+
+正常路径（无 DOUBLE/REPEAT 的键）行为与旧版完全一致：
+- 非 delayed 键 → 立即 down/up（方向键、ESC 等）
+- TAP 键 → 松开时原子点按
+- HOLD 键 → 到阈值触发一次
+
+### 代码结构
+
+- `KeyMapConfig`：解析器拆分 `|` 段，按关键字分类（DOUBLE/HOLD/REPEAT），验证互斥
+- `KeyMapEngine`：`HandleTimed` 处理 down/up 边沿，`TakeDueActions` 轮询长按/连发/双击超时
+- 自动测试覆盖：DOUBLE 解析与检测、REPEAT 解析与定时、互斥校验、双击+长按共存、连发快速松开回退为单击、所有现有场景回归

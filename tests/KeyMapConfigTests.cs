@@ -84,6 +84,124 @@ class KeyMapConfigTests {
         Equal(true, timedEngine.HandleTimed(0x7F, false, false, 5000, out timedActions), "home up swallowed");
         Equal(0, timedActions.Length, "home long up does not fire again");
 
+        // ===== DOUBLE click parsing =====
+        var dBindings = KeyMapConfig.ParseLines(new[] {
+            "测试键 = 0x80 -> TAP X | DOUBLE 300 -> TAP Y"
+        });
+        Equal((uint)300, dBindings[0].DoubleMs, "parse DOUBLE ms");
+        Equal(1, dBindings[0].DoubleCombo.Length, "parse DOUBLE combo length");
+        Equal((ushort)0x59, dBindings[0].DoubleCombo[0], "parse DOUBLE combo Y");
+
+        // ===== REPEAT parsing =====
+        var rBindings = KeyMapConfig.ParseLines(new[] {
+            "测试键 = 0x80 -> TAP X | REPEAT 350 100 -> TAP Y"
+        });
+        Equal((uint)350, rBindings[0].RepeatDelay, "parse REPEAT delay");
+        Equal((uint)100, rBindings[0].RepeatInterval, "parse REPEAT interval");
+        Equal((ushort)0x59, rBindings[0].RepeatCombo[0], "parse REPEAT combo Y");
+        Equal(true, rBindings[0].LongCombo == null, "parse REPEAT no HOLD");
+
+        // ===== DOUBLE + HOLD can coexist =====
+        var dhBindings = KeyMapConfig.ParseLines(new[] {
+            "测试键 = 0x80 -> TAP X | DOUBLE 300 -> TAP Y | HOLD 550 -> TAP Z"
+        });
+        Equal((uint)300, dhBindings[0].DoubleMs, "double+hold DOUBLE ms");
+        Equal((uint)550, dhBindings[0].LongPressMs, "double+hold HOLD ms");
+
+        // ===== DOUBLE + REPEAT can coexist =====
+        var drBindings = KeyMapConfig.ParseLines(new[] {
+            "测试键 = 0x80 -> TAP X | DOUBLE 300 -> TAP Y | REPEAT 350 100 -> TAP Z"
+        });
+        Equal((uint)300, drBindings[0].DoubleMs, "double+repeat DOUBLE ms");
+        Equal((uint)350, drBindings[0].RepeatDelay, "double+repeat REPEAT delay");
+
+        // ===== HOLD and REPEAT are mutually exclusive =====
+        try {
+            KeyMapConfig.ParseLines(new[] { "测试键 = 0x80 -> TAP X | HOLD 800 -> TAP Y | REPEAT 350 100 -> TAP Z" });
+            Console.WriteLine("FAIL mutual exclusivity: expected FormatException");
+            failures++;
+        } catch (FormatException) {
+            // expected
+        }
+
+        // ===== Double-click: two quick presses -> double action =====
+        var dcEngine = new KeyMapEngine(KeyMapConfig.ParseLines(new[] {
+            "测试键 = 0x80 -> TAP X | DOUBLE 300 -> TAP Y"
+        }));
+        MappedKeyEvent[] dcActions;
+        Equal(true, dcEngine.HandleTimed(0x80, true, false, 1000, out dcActions), "dc first down swallowed");
+        Equal(0, dcActions.Length, "dc first down no action");
+        Equal(true, dcEngine.HandleTimed(0x80, false, false, 1100, out dcActions), "dc first up swallowed");
+        Equal(0, dcActions.Length, "dc first up deferred");
+        dcActions = dcEngine.TakeDueActions(1200);
+        Equal(0, dcActions.Length, "dc no action before timeout");
+        // Second press within window
+        Equal(true, dcEngine.HandleTimed(0x80, true, false, 1250, out dcActions), "dc second down swallowed");
+        Equal(0, dcActions.Length, "dc second down no action");
+        Equal(true, dcEngine.HandleTimed(0x80, false, false, 1300, out dcActions), "dc second up swallowed");
+        Equal(1, dcActions.Length, "dc emits one action");
+        Equal(true, dcActions[0].IsTap, "dc is tap");
+        Equal((ushort)0x59, dcActions[0].Combo[0], "dc emits Y (double action)");
+
+        // ===== Single click with double configured: deferred by window =====
+        var scEngine = new KeyMapEngine(KeyMapConfig.ParseLines(new[] {
+            "测试键 = 0x80 -> TAP X | DOUBLE 300 -> TAP Y"
+        }));
+        MappedKeyEvent[] scActions;
+        Equal(true, scEngine.HandleTimed(0x80, true, false, 1000, out scActions), "sc down swallowed");
+        Equal(true, scEngine.HandleTimed(0x80, false, false, 1100, out scActions), "sc up swallowed");
+        Equal(0, scActions.Length, "sc up deferred");
+        scActions = scEngine.TakeDueActions(1399);
+        Equal(0, scActions.Length, "sc not fired before timeout");
+        scActions = scEngine.TakeDueActions(1400);
+        Equal(1, scActions.Length, "sc fires at timeout");
+        Equal((ushort)0x58, scActions[0].Combo[0], "sc emits X (single action)");
+
+        // ===== Repeat: fires at delay, then at interval =====
+        var rpEngine = new KeyMapEngine(KeyMapConfig.ParseLines(new[] {
+            "测试键 = 0x80 -> TAP X | REPEAT 350 100 -> TAP Y"
+        }));
+        MappedKeyEvent[] rpActions;
+        Equal(true, rpEngine.HandleTimed(0x80, true, false, 1000, out rpActions), "rp down swallowed");
+        Equal(0, rpActions.Length, "rp down no action");
+        rpActions = rpEngine.TakeDueActions(1349);
+        Equal(0, rpActions.Length, "rp not fired before delay");
+        rpActions = rpEngine.TakeDueActions(1350);
+        Equal(1, rpActions.Length, "rp fires at delay");
+        Equal((ushort)0x59, rpActions[0].Combo[0], "rp emits Y");
+        rpActions = rpEngine.TakeDueActions(1450);
+        Equal(1, rpActions.Length, "rp fires again at interval");
+        rpActions = rpEngine.TakeDueActions(1550);
+        Equal(1, rpActions.Length, "rp fires again");
+        // Release stops repeat
+        Equal(true, rpEngine.HandleTimed(0x80, false, false, 1560, out rpActions), "rp up swallowed");
+        Equal(0, rpActions.Length, "rp up no action after fired");
+        rpActions = rpEngine.TakeDueActions(1650);
+        Equal(0, rpActions.Length, "rp no more after release");
+
+        // ===== Repeat: quick release fires single click =====
+        var rp2Engine = new KeyMapEngine(KeyMapConfig.ParseLines(new[] {
+            "测试键 = 0x80 -> TAP X | REPEAT 350 100 -> TAP Y"
+        }));
+        MappedKeyEvent[] rp2Actions;
+        Equal(true, rp2Engine.HandleTimed(0x80, true, false, 1000, out rp2Actions), "rp2 down swallowed");
+        Equal(true, rp2Engine.HandleTimed(0x80, false, false, 1100, out rp2Actions), "rp2 quick up swallowed");
+        Equal(1, rp2Actions.Length, "rp2 quick release emits single click");
+        Equal((ushort)0x58, rp2Actions[0].Combo[0], "rp2 single click X");
+
+        // ===== Double + long: double takes priority on quick double-press =====
+        var dlEngine = new KeyMapEngine(KeyMapConfig.ParseLines(new[] {
+            "测试键 = 0x80 -> TAP X | DOUBLE 300 -> TAP Y | HOLD 550 -> TAP Z"
+        }));
+        MappedKeyEvent[] dlActions;
+        Equal(true, dlEngine.HandleTimed(0x80, true, false, 1000, out dlActions), "dl first down");
+        Equal(true, dlEngine.HandleTimed(0x80, false, false, 1100, out dlActions), "dl first up deferred");
+        Equal(0, dlActions.Length, "dl first up no action");
+        Equal(true, dlEngine.HandleTimed(0x80, true, false, 1200, out dlActions), "dl second down");
+        Equal(true, dlEngine.HandleTimed(0x80, false, false, 1300, out dlActions), "dl second up");
+        Equal(1, dlActions.Length, "dl emits double action");
+        Equal((ushort)0x59, dlActions[0].Combo[0], "dl double Y");
+
         var repositoryBindings = KeyMapConfig.ParseLines(File.ReadAllLines("keymap.txt"));
         var repositoryEngine = new KeyMapEngine(repositoryBindings);
         Equal(6, repositoryEngine.BindingCount, "repository active binding count");

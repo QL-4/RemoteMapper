@@ -35,26 +35,50 @@ public sealed class KeyMapEngine {
         public uint LongPressMs;
         public ushort[] LongCombo;
         public KeyActionKind LongAction;
+        public uint DoubleMs;
+        public ushort[] DoubleCombo;
+        public KeyActionKind DoubleAction;
+        public uint RepeatDelay;
+        public uint RepeatInterval;
+        public ushort[] RepeatCombo;
+        public KeyActionKind RepeatAction;
+    }
+
+    // Per-key runtime state for gesture detection
+    sealed class KeyState {
+        public bool IsHeld;
+        public uint PressTime;
+        public bool Fired;          // long-press or first repeat fired
+        public uint NextRepeat;     // 0 = no repeat scheduled
+        public bool WaitingDouble;  // released, waiting for potential second press
+        public uint DoubleDeadline; // when double-click window expires
+        public int PressCount;      // 1 or 2
     }
 
     static readonly MappedKeyEvent[] NoActions = new MappedKeyEvent[0];
     readonly Dictionary<ushort, RuntimeBinding> bindings = new Dictionary<ushort, RuntimeBinding>();
-    readonly HashSet<ushort> held = new HashSet<ushort>();
-    readonly Dictionary<ushort, uint> downTimes = new Dictionary<ushort, uint>();
-    readonly HashSet<ushort> longFired = new HashSet<ushort>();
+    readonly Dictionary<ushort, KeyState> states = new Dictionary<ushort, KeyState>();
 
     public int BindingCount { get { return bindings.Count; } }
 
     public KeyMapEngine(IEnumerable<KeyBinding> configuredBindings) {
-        foreach (KeyBinding binding in configuredBindings) {
-            if (binding.Combo == null || binding.Combo.Length == 0) continue;
-            if (binding.LongCombo == null && binding.Combo.Length == 1 && binding.Combo[0] == binding.SourceVk) continue;
-            bindings[binding.SourceVk] = new RuntimeBinding {
-                Combo = binding.Combo,
-                Tap = binding.Tap,
-                LongPressMs = binding.LongPressMs,
-                LongCombo = binding.LongCombo,
-                LongAction = binding.LongAction
+        foreach (KeyBinding b in configuredBindings) {
+            if (b.Combo == null || b.Combo.Length == 0) continue;
+            bool hasGesture = b.LongCombo != null || b.DoubleCombo != null || b.RepeatCombo != null;
+            if (!hasGesture && b.Combo.Length == 1 && b.Combo[0] == b.SourceVk) continue;
+            bindings[b.SourceVk] = new RuntimeBinding {
+                Combo = b.Combo,
+                Tap = b.Tap,
+                LongPressMs = b.LongPressMs,
+                LongCombo = b.LongCombo,
+                LongAction = b.LongAction,
+                DoubleMs = b.DoubleMs,
+                DoubleCombo = b.DoubleCombo,
+                DoubleAction = b.DoubleAction,
+                RepeatDelay = b.RepeatDelay,
+                RepeatInterval = b.RepeatInterval,
+                RepeatCombo = b.RepeatCombo,
+                RepeatAction = b.RepeatAction
             };
         }
     }
@@ -73,54 +97,133 @@ public sealed class KeyMapEngine {
         RuntimeBinding binding;
         if (!bindings.TryGetValue(sourceVk, out binding)) return false;
 
-        bool delayed = binding.Tap || binding.LongCombo != null;
+        bool delayed = binding.Tap || binding.LongCombo != null
+            || binding.DoubleCombo != null || binding.RepeatCombo != null;
+
+        KeyState st;
+        if (!states.TryGetValue(sourceVk, out st)) {
+            st = new KeyState();
+            states[sourceVk] = st;
+        }
+
         if (isDown) {
-            if (!held.Add(sourceVk)) return true;
-            downTimes[sourceVk] = eventTime;
-            longFired.Remove(sourceVk);
-            if (!delayed) actions = new[] { new MappedKeyEvent(binding.Combo, true) };
+            // ===== KEY DOWN =====
+            if (st.WaitingDouble) {
+                // Second press within double-click window
+                st.WaitingDouble = false;
+                st.IsHeld = true;
+                st.PressTime = eventTime;
+                st.Fired = false;
+                st.NextRepeat = 0;
+                st.PressCount = 2;
+                return true;
+            }
+            if (st.IsHeld) return true; // auto-repeat down, swallow
+
+            // First press
+            st.IsHeld = true;
+            st.PressTime = eventTime;
+            st.Fired = false;
+            st.NextRepeat = 0;
+            st.PressCount = 1;
+
+            if (!delayed)
+                actions = new[] { new MappedKeyEvent(binding.Combo, true) };
             return true;
         }
 
-        uint downTime;
-        bool wasHeld = held.Remove(sourceVk);
-        bool hadTime = downTimes.TryGetValue(sourceVk, out downTime);
-        downTimes.Remove(sourceVk);
-        bool firedLong = longFired.Remove(sourceVk);
-        if (!wasHeld) return true;
+        // ===== KEY UP =====
+        if (!st.IsHeld) {
+            // Stray up (no matching down)
+            st.WaitingDouble = false;
+            st.PressCount = 0;
+            return true;
+        }
+
+        st.IsHeld = false;
 
         if (!delayed) {
+            // Immediate-hold: release the combo
             actions = new[] { new MappedKeyEvent(binding.Combo, false) };
             return true;
         }
 
-        if (firedLong) return true;
-
-        ushort[] combo = binding.Combo;
-        if (binding.LongCombo != null && hadTime) {
-            uint elapsed = unchecked(eventTime - downTime);
-            if (elapsed >= binding.LongPressMs) {
-                actions = new[] { binding.LongAction == KeyActionKind.Combo ? MappedKeyEvent.Tap(binding.LongCombo) : MappedKeyEvent.SystemAction(binding.LongAction) };
+        // Edge case: released at/after long threshold but before TakeDueActions polled
+        if (binding.LongCombo != null && !st.Fired) {
+            if (unchecked(eventTime - st.PressTime) >= binding.LongPressMs) {
+                st.Fired = true;
+                st.PressCount = 0;
+                actions = new[] { MakeAction(binding.LongAction, binding.LongCombo) };
                 return true;
             }
         }
-        actions = new[] { MappedKeyEvent.Tap(combo) };
+
+        if (st.Fired) {
+            // Long or repeat already fired; clean up
+            st.NextRepeat = 0;
+            st.PressCount = 0;
+            return true;
+        }
+
+        // Released before long/repeat threshold
+        if (binding.DoubleCombo != null && st.PressCount == 1) {
+            // Start double-click window; single click deferred
+            st.WaitingDouble = true;
+            st.DoubleDeadline = unchecked(eventTime + binding.DoubleMs);
+            return true;
+        }
+
+        // Fire click action now (single or double)
+        if (st.PressCount >= 2 && binding.DoubleCombo != null)
+            actions = new[] { MappedKeyEvent.Tap(binding.DoubleCombo) };
+        else
+            actions = new[] { MappedKeyEvent.Tap(binding.Combo) };
+        st.PressCount = 0;
+        st.WaitingDouble = false;
         return true;
     }
 
     public MappedKeyEvent[] TakeDueActions(uint currentTime) {
         var actions = new List<MappedKeyEvent>();
-        foreach (KeyValuePair<ushort, uint> entry in downTimes) {
+        foreach (var pair in states) {
+            KeyState st = pair.Value;
             RuntimeBinding binding;
-            if (!held.Contains(entry.Key) || longFired.Contains(entry.Key) ||
-                !bindings.TryGetValue(entry.Key, out binding) || binding.LongCombo == null) continue;
+            if (!bindings.TryGetValue(pair.Key, out binding)) continue;
 
-            uint elapsed = unchecked(currentTime - entry.Value);
-            if (elapsed < binding.LongPressMs) continue;
+            if (st.IsHeld) {
+                // Hold-repeat mode (mutually exclusive with long)
+                if (binding.RepeatCombo != null) {
+                    if (!st.Fired) {
+                        if (unchecked(currentTime - st.PressTime) >= binding.RepeatDelay) {
+                            st.Fired = true;
+                            st.NextRepeat = unchecked(currentTime + binding.RepeatInterval);
+                            actions.Add(MakeAction(binding.RepeatAction, binding.RepeatCombo));
+                        }
+                    } else if (st.NextRepeat > 0 && currentTime >= st.NextRepeat) {
+                        st.NextRepeat = unchecked(currentTime + binding.RepeatInterval);
+                        actions.Add(MakeAction(binding.RepeatAction, binding.RepeatCombo));
+                    }
+                }
+                // Long-press mode
+                else if (binding.LongCombo != null && !st.Fired) {
+                    if (unchecked(currentTime - st.PressTime) >= binding.LongPressMs) {
+                        st.Fired = true;
+                        actions.Add(MakeAction(binding.LongAction, binding.LongCombo));
+                    }
+                }
+            }
 
-            longFired.Add(entry.Key);
-            actions.Add(binding.LongAction == KeyActionKind.Combo ? MappedKeyEvent.Tap(binding.LongCombo) : MappedKeyEvent.SystemAction(binding.LongAction));
+            // Double-click timeout: single click fires
+            if (st.WaitingDouble && currentTime >= st.DoubleDeadline) {
+                st.WaitingDouble = false;
+                st.PressCount = 0;
+                actions.Add(MappedKeyEvent.Tap(binding.Combo));
+            }
         }
         return actions.ToArray();
+    }
+
+    static MappedKeyEvent MakeAction(KeyActionKind kind, ushort[] combo) {
+        return kind == KeyActionKind.Combo ? MappedKeyEvent.Tap(combo) : MappedKeyEvent.SystemAction(kind);
     }
 }

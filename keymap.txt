@@ -23,8 +23,15 @@
 #   <键名> = <vk> -> <目标组合>
 # 目标组合: 键名用 + 连接, 例  LALT+TAB   /   RALT+OEM_COMMA   /   LWIN+D
 # TAP 前缀 = 源键抬起后原子点按目标组合，避免源 F 键与目标修饰键形成 Windows 保留组合。
-# 短按/长按: TAP <短按组合> | HOLD <毫秒> -> <长按组合或 TASKVIEW>
-# TASKVIEW = 通过 Explorer Shell 打开任务视图，不注入 Win 键。
+# 手势语法 (用 | 分隔，可组合):
+#   TAP <组合>            单击: 源键抬起后原子点按
+#   DOUBLE <毫秒> -> <动作>  双击: 两次按下间隔 < 毫秒时触发，单击延迟到窗口结束
+#   HOLD <毫秒> -> <动作>    长按: 按住达到毫秒后立即触发一次 (与 REPEAT 互斥)
+#   REPEAT <延迟> <间隔> -> <动作>  连发: 延迟后开始，每隔间隔重复触发 (与 HOLD 互斥)
+#   TASKVIEW = 通过 Explorer Shell 打开任务视图，不注入 Win 键。
+# 组合示例:
+#   菜单键 = 0x80 -> TAP X | DOUBLE 300 -> TAP Y | HOLD 550 -> TAP Z
+#   音量加 = 0x7C -> TAP BACK | REPEAT 350 100 -> TAP BACK
 # -> 后面留空 = 不映射, 该键照常放行。
 #
 # 支持的目标键名:
