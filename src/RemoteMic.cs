@@ -52,10 +52,12 @@ class RemoteMic {
 
     // ===== key injection worker thread (avoids doing SendInput inside hook/WinRT callbacks) =====
     sealed class KeyAction {
-        public const int VoiceHold = 1, VoiceRelease = 2, MapDown = 3, MapUp = 4, MapTap = 5, TaskView = 6;
+        public const int VoiceHold = 1, VoiceRelease = 2, MapDown = 3, MapUp = 4, MapTap = 5, TaskView = 6, Launch = 7, Cmd = 8, Code = 9;
         public int Kind;
         public ushort[] Combo;
-        public KeyAction(int kind, ushort[] combo) { Kind = kind; Combo = combo; }
+        public string Command;
+        public KeyAction(int kind, ushort[] combo) : this(kind, combo, null) { }
+        public KeyAction(int kind, ushort[] combo, string command) { Kind = kind; Combo = combo; Command = command; }
     }
     static System.Collections.Concurrent.BlockingCollection<KeyAction> keyQueue =
         new System.Collections.Concurrent.BlockingCollection<KeyAction>();
@@ -78,6 +80,12 @@ class RemoteMic {
                         KeySim.TapMappedCombo(act.Combo);
                     } else if (act.Kind == KeyAction.TaskView) {
                         KeySim.OpenTaskView();
+                    } else if (act.Kind == KeyAction.Launch) {
+                        KeySim.RunLaunch(act.Command);
+                    } else if (act.Kind == KeyAction.Cmd) {
+                        KeySim.RunCmd(act.Command);
+                    } else if (act.Kind == KeyAction.Code) {
+                        KeySim.RunCode(act.Command);
                     }
                 } catch (Exception ex) { Console.WriteLine("[KEY] worker err: " + ex.Message); }
             }
@@ -86,6 +94,18 @@ class RemoteMic {
     }
 
     public static void QueueMappedKey(MappedKeyEvent action) {
+        if (action.Action == KeyActionKind.Launch) {
+            keyQueue.Add(new KeyAction(KeyAction.Launch, null, action.Command));
+            return;
+        }
+        if (action.Action == KeyActionKind.Cmd) {
+            keyQueue.Add(new KeyAction(KeyAction.Cmd, null, action.Command));
+            return;
+        }
+        if (action.Action == KeyActionKind.Code) {
+            keyQueue.Add(new KeyAction(KeyAction.Code, null, action.Command));
+            return;
+        }
         int kind = action.Action == KeyActionKind.TaskView ? KeyAction.TaskView :
             (action.IsTap ? KeyAction.MapTap : (action.IsDown ? KeyAction.MapDown : KeyAction.MapUp));
         keyQueue.Add(new KeyAction(kind, action.Combo));
@@ -107,6 +127,11 @@ class RemoteMic {
         Console.Title = "RemoteMic - Xiaomi Remote -> VB-Cable";
         Console.WriteLine("== RemoteMic: remote mic -> CABLE + WeChat IME hotkey ==");
 
+        KeyMapper.Load("keymap.json");
+        StartKeyWorker();
+        KeyMapUi.Start();
+        VoiceKeyBlocker.Start();
+
         // 1. connect BLE  (match by device name "MI RC" so it works across remotes/machines;
         //                   fall back to a known MAC prefix)
         Console.Write("[1/4] connecting to remote...");
@@ -114,24 +139,37 @@ class RemoteMic {
         var devs = await AsT(DeviceInformation.FindAllAsync(sel));
         var di = devs.FirstOrDefault(d => d.Name.IndexOf("MI RC", StringComparison.OrdinalIgnoreCase) >= 0)
                ?? devs.FirstOrDefault(d => d.Id.IndexOf("c0:5d:39", StringComparison.OrdinalIgnoreCase) >= 0);
-        if (di == null) { Console.WriteLine(" NOT FOUND (turn on remote, re-pair if needed)"); return; }
+        if (di == null) {
+            Console.WriteLine(" NOT FOUND (turn on remote, re-pair if needed)");
+            Console.WriteLine(">> Key mapping panel is still available from the tray icon.");
+            await IdleForever();
+            return;
+        }
         device = await AsT(BluetoothLEDevice.FromIdAsync(di.Id));
         if (device == null) { Console.WriteLine(" FromIdAsync failed"); return; }
         Console.WriteLine(" OK (" + di.Name + ")");
 
         // 2. GATT setup (retry: service enumeration can be empty if BLE not ready)
         Console.Write("[2/4] setting up ATVV service...");
-        GattDeviceServicesResult svcRes = null;
+        GattDeviceService svc = null;
+        GattCharacteristic cmd = null, chAud = null, chCtl = null;
         for (int attempt = 0; attempt < 5; attempt++) {
-            svcRes = await AsT(device.GetGattServicesAsync(BluetoothCacheMode.Uncached));
-            if (svcRes.Services.Any(s => s.Uuid == SVC)) break;
+            var svcRes = await AsT(device.GetGattServicesAsync(BluetoothCacheMode.Uncached));
+            svc = svcRes.Services.FirstOrDefault(s => s.Uuid == SVC);
+            if (svc != null) {
+                var chRes = await AsT(svc.GetCharacteristicsAsync(BluetoothCacheMode.Uncached));
+                cmd = chRes.Characteristics.FirstOrDefault(c => c.Uuid == C_CMD);
+                chAud = chRes.Characteristics.FirstOrDefault(c => c.Uuid == C_AUD);
+                chCtl = chRes.Characteristics.FirstOrDefault(c => c.Uuid == C_CTL);
+                if (cmd != null && chAud != null && chCtl != null) break;
+            }
+            Console.Write(" retry " + (attempt + 1) + "/5...");
             await Task.Delay(1000);
         }
-        var svc = svcRes.Services.First(s => s.Uuid == SVC);
-        var chRes = await AsT(svc.GetCharacteristicsAsync(BluetoothCacheMode.Uncached));
-        chCmd = chRes.Characteristics.First(c => c.Uuid == C_CMD);
-        var chAud = chRes.Characteristics.First(c => c.Uuid == C_AUD);
-        var chCtl = chRes.Characteristics.First(c => c.Uuid == C_CTL);
+        if (svc == null) throw new Exception("ATVV service not found after 5 retries");
+        if (cmd == null || chAud == null || chCtl == null)
+            throw new Exception("ATVV characteristics not found after 5 retries");
+        chCmd = cmd;
         HookEvent(chCtl, MakeCtlHandler());
         HookEvent(chAud, MakeAudioHandler());
         await AsT(chCtl.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify));
@@ -141,11 +179,13 @@ class RemoteMic {
         // 3. open CABLE
         Console.Write("[3/4] opening VB-Cable Input...");
         streamer = new WaveStreamer();
-        if (!streamer.Start("CABLE Input", SR)) { Console.WriteLine(" CABLE not found!"); return; }
+        if (!streamer.Start("CABLE Input", SR)) {
+            Console.WriteLine(" CABLE not found!");
+            Console.WriteLine(">> Key mapping panel is still available from the tray icon.");
+            await IdleForever();
+            return;
+        }
         Console.WriteLine(" OK");
-        StartKeyWorker();
-        KeyMapper.Load("keymap.txt");
-        VoiceKeyBlocker.Start();
         if (DeviceSwitch.FindCable())
             Console.WriteLine("[DEV] CABLE Output found as device; will auto-switch default capture while talking");
         else
@@ -172,6 +212,10 @@ class RemoteMic {
             await Task.Delay(5000);
             try { await WriteCmd(new byte[] { 0x0E, sessionId }); } catch { } // MIC_EXTEND (real session ID)
         }
+    }
+
+    static async Task IdleForever() {
+        while (true) await Task.Delay(60000);
     }
 
     static TypedEventHandler<GattCharacteristic, GattValueChangedEventArgs> MakeCtlHandler() {
@@ -372,18 +416,22 @@ class RemoteMic {
             Console.WriteLine("Interactive: " + System.Environment.UserInteractive);
         } catch (Exception ex) { Console.WriteLine("[LOG] init failed: " + ex.Message); }
 
-        // graceful Ctrl+C
         Console.CancelKeyPress += (o, ea) => {
             ea.Cancel = true;
-            Console.WriteLine("\nExiting...");
-            try { KeySim.ReleaseCombo(); } catch { }
-            if (streamer != null) streamer.Stop();
-            try { DeviceSwitch.Restore(); } catch { }
-            try { VoiceKeyBlocker.Stop(); } catch { }
-            Environment.Exit(0);
+            RequestExit();
         };
         try { Run().GetAwaiter().GetResult(); }
         catch (Exception ex) { Console.WriteLine("FATAL: " + ex); Console.ReadLine(); }
+    }
+
+    public static void RequestExit() {
+        Console.WriteLine("\nExiting...");
+        try { KeySim.ReleaseCombo(); } catch { }
+        if (streamer != null) streamer.Stop();
+        try { DeviceSwitch.Restore(); } catch { }
+        try { VoiceKeyBlocker.Stop(); } catch { }
+        try { KeyMapUi.Stop(); } catch { }
+        Environment.Exit(0);
     }
 }
 
@@ -768,6 +816,33 @@ class KeySim {
     }
     public static void OpenTaskView() {
         System.Diagnostics.Process.Start("explorer.exe", "shell:::{3080F90E-D7AD-11D9-BD98-0000947B0257}");
+    }
+    public static void RunCode(string source) {
+        string text = KeySnippet.Run(source);
+        if (String.IsNullOrEmpty(text)) return;
+        if (!KeyComboSender.TypeText(text)) Console.WriteLine("[KEYMAP] type snippet failed");
+        else Console.WriteLine("[KEY] CODE -> " + text);
+    }
+    public static void RunLaunch(string command) {
+        if (String.IsNullOrWhiteSpace(command)) return;
+        string path, args;
+        KeyMapConfig.SplitCommand(command, out path, out args);
+        var psi = new System.Diagnostics.ProcessStartInfo();
+        psi.FileName = path;
+        psi.Arguments = args ?? "";
+        psi.UseShellExecute = true;
+        System.Diagnostics.Process.Start(psi);
+        Console.WriteLine("[KEY] LAUNCH " + command);
+    }
+    public static void RunCmd(string command) {
+        if (String.IsNullOrWhiteSpace(command)) return;
+        var psi = new System.Diagnostics.ProcessStartInfo();
+        psi.FileName = "cmd.exe";
+        psi.Arguments = "/c " + command;
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
+        System.Diagnostics.Process.Start(psi);
+        Console.WriteLine("[KEY] CMD " + command);
     }
     public static void DiagFg(string tag) {
         // kept for manual debugging; disabled by default

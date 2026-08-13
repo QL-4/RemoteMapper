@@ -16,6 +16,9 @@
 
 根目录（日常运行所需）：
   RemoteMic.exe        主程序（必需）
+  keymap.json          按键映射（必需；若只有旧 keymap.txt 会自动迁移）
+  ui\keymap.html       按键面板前端（必需）
+  ui\remote.png        遥控器产品图（面板中间）
   start.vbs            后台启动器（推荐，无窗口常驻）
   stop.bat             停止后台进程
   debug.bat            前台启动脚本（可选，调试看实时输出）
@@ -171,7 +174,7 @@ build.bat
 
 ### B2. 换一个语音输入法 / 换快捷键
 
-语音键触发微信输入法的热键仍在 `src\RemoteMic.cs` 的 `KeySim` 中定义为右 Alt + 逗号。普通遥控器按键的全局映射则直接修改根目录 `keymap.txt`，重启 RemoteMic 后生效，无需重新编译。
+语音键触发微信输入法的热键仍在 `src\RemoteMic.cs` 的 `KeySim` 中定义为右 Alt + 逗号。普通遥控器按键的全局映射则直接修改根目录 `keymap.json`，重启 RemoteMic 后生效，无需重新编译。
 
 ### B3. 不自动切换录音设备（手动固定）
 

@@ -11,6 +11,7 @@ public static class KeyComboSender {
     const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     const uint KEYEVENTF_KEYUP = 0x0002;
     const uint KEYEVENTF_SCANCODE = 0x0008;
+    const uint KEYEVENTF_UNICODE = 0x0004;
     const uint MAPVK_VK_TO_VSC = 0;
 
     [StructLayout(LayoutKind.Explicit, Size = 40)]
@@ -61,6 +62,29 @@ public static class KeyComboSender {
         var inputs = new INPUT[combo.Length];
         for (int i = 0; i < combo.Length; i++) inputs[i] = MakeInput(combo[combo.Length - 1 - i], false);
         return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT))) == inputs.Length;
+    }
+
+    static INPUT MakeUnicode(char ch, bool down) {
+        uint flags = KEYEVENTF_UNICODE;
+        if (!down) flags |= KEYEVENTF_KEYUP;
+        return new INPUT {
+            type = INPUT_KEYBOARD,
+            keyboard = new KEYBDINPUT {
+                virtualKey = 0,
+                scanCode = ch,
+                flags = flags
+            }
+        };
+    }
+
+    public static bool TypeText(string text) {
+        if (String.IsNullOrEmpty(text)) return false;
+        var inputs = new INPUT[text.Length * 2];
+        for (int i = 0; i < text.Length; i++) {
+            inputs[i * 2] = MakeUnicode(text[i], true);
+            inputs[i * 2 + 1] = MakeUnicode(text[i], false);
+        }
+        return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT))) == (uint)inputs.Length;
     }
 
     public static bool Tap(ushort[] combo) {

@@ -10,8 +10,13 @@ set RUNTIME=C:\Windows\Microsoft.NET\assembly\GAC_MSIL\System.Runtime\v4.0_4.0.0
   /r:"%WINMD%\Windows.Foundation.winmd" ^
   /r:"%WINMD%\Windows.Storage.winmd" ^
   /r:"%RUNTIME%" ^
+  /r:System.Windows.Forms.dll ^
+  /r:System.Drawing.dll ^
+  /r:System.Web.Extensions.dll ^
+  /r:Microsoft.CSharp.dll ^
+  /win32icon:ui\app.ico ^
   /out:RemoteMic.new.exe ^
-  src\RemoteMic.cs src\KeyMapConfig.cs src\KeyMapEngine.cs src\KeyMapper.cs src\KeyComboSender.cs
+  src\RemoteMic.cs src\KeyMapConfig.cs src\KeyMapEngine.cs src\KeyMapper.cs src\KeyComboSender.cs src\RemoteCatalog.cs src\KeyMapPanel.cs src\KeySnippet.cs
 if errorlevel 1 exit /b %errorlevel%
 
 move /y RemoteMic.new.exe RemoteMic.exe >nul

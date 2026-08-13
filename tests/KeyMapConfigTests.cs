@@ -50,6 +50,12 @@ class KeyMapConfigTests {
         });
         Equal(KeyActionKind.TaskView, taskBindings[0].LongAction, "home long action parses TASKVIEW");
 
+        var timeBindings = KeyMapConfig.ParseLines(new[] {
+            "菜单键 = 0x80 -> TAP X | DOUBLE 300 -> CODE DateTime.Now.ToString(\"HH:mm\")"
+        });
+        Equal(KeyActionKind.Code, timeBindings[0].DoubleAction, "menu double parses CODE");
+        Equal("DateTime.Now.ToString(\"HH:mm\")", timeBindings[0].DoubleCommand, "menu double code body");
+
         var timedEngine = new KeyMapEngine(KeyMapConfig.ParseLines(new[] {
             "主页键 = 0x7F -> TAP LALT+TAB | HOLD 800 -> TASKVIEW",
             "电源键 = 0x82 -> TAP LALT+X | HOLD 800 -> TAP LALT+F4"
@@ -202,9 +208,11 @@ class KeyMapConfigTests {
         Equal(1, dlActions.Length, "dl emits double action");
         Equal((ushort)0x59, dlActions[0].Combo[0], "dl double Y");
 
-        var repositoryBindings = KeyMapConfig.ParseLines(File.ReadAllLines("keymap.txt"));
+        bool jsonEnabled;
+        var repositoryBindings = KeyMapConfig.ReadJsonFile("keymap.json", out jsonEnabled);
+        Equal(true, jsonEnabled, "keymap.json enabled");
         var repositoryEngine = new KeyMapEngine(repositoryBindings);
-        Equal(6, repositoryEngine.BindingCount, "repository active binding count");
+        Equal(7, repositoryEngine.BindingCount, "repository active binding count");
         MappedKeyEvent[] repositoryActions;
 
         Equal(true, repositoryEngine.HandleTimed(0x7E, true, false, 100, out repositoryActions), "repository F15 short down");
@@ -236,14 +244,16 @@ class KeyMapConfigTests {
         Equal((ushort)0x73, repositoryActions[0].Combo[1], "repository F16 long F4");
         repositoryEngine.HandleTimed(0x7F, false, false, 5900, out repositoryActions);
 
-        Equal(true, repositoryEngine.Handle(0x7C, true, false, out action), "repository F13 volume up mapped");
-        Equal((ushort)0x08, action.Combo[0], "repository F13 BACK");
-        repositoryEngine.Handle(0x7C, false, false, out action);
+        Equal(true, repositoryEngine.HandleTimed(0x7C, true, false, 6000, out repositoryActions), "repository F13 volume up down");
+        Equal(0, repositoryActions.Length, "repository F13 down deferred");
+        Equal(true, repositoryEngine.HandleTimed(0x7C, false, false, 6100, out repositoryActions), "repository F13 volume up short");
+        Equal((ushort)0x08, repositoryActions[0].Combo[0], "repository F13 BACK");
         Equal(true, repositoryEngine.Handle(0x7D, true, false, out action), "repository F14 volume down mapped");
         Equal((ushort)0x2E, action.Combo[0], "repository F14 DELETE");
         repositoryEngine.Handle(0x7D, false, false, out action);
 
-        Equal(false, repositoryEngine.Handle(0x80, true, false, out action), "repository F17 menu disabled");
+        Equal(true, repositoryEngine.Handle(0x80, true, false, out action), "repository F17 menu mapped");
+        repositoryEngine.Handle(0x80, false, false, out action);
         Equal(true, repositoryEngine.Handle(0x81, true, false, out action), "repository F18 live mapped");
         Equal((ushort)0x1B, action.Combo[0], "repository F18 ESC");
         repositoryEngine.Handle(0x81, false, false, out action);
@@ -253,6 +263,57 @@ class KeyMapConfigTests {
         Equal(false, repositoryEngine.Handle(0x5D, true, false, out action), "physical Apps passes through");
         Equal(false, repositoryEngine.Handle(0xC0, true, false, out action), "physical backtick passes through");
         Equal(false, repositoryEngine.Handle(0xFF, true, false, out action), "physical Power passes through");
+
+        // ===== LAUNCH / CMD parse + fire =====
+        var launchBindings = KeyMapConfig.ParseLines(new[] {
+            "菜单键 = 0x80 -> LAUNCH C:\\Tools\\cmux.exe --flag",
+            "直播键 = 0x81 -> TAP ESC | HOLD 600 -> CMD start notepad"
+        });
+        Equal(KeyActionKind.Launch, launchBindings[0].ClickAction, "parse LAUNCH kind");
+        Equal("C:\\Tools\\cmux.exe --flag", launchBindings[0].ClickCommand, "parse LAUNCH command");
+        Equal(KeyActionKind.Cmd, launchBindings[1].LongAction, "parse CMD hold kind");
+        Equal("start notepad", launchBindings[1].LongCommand, "parse CMD hold command");
+
+        var launchEngine = new KeyMapEngine(launchBindings);
+        MappedKeyEvent[] launchActions;
+        Equal(true, launchEngine.HandleTimed(0x80, true, false, 1000, out launchActions), "launch down swallowed");
+        Equal(0, launchActions.Length, "launch down deferred");
+        Equal(true, launchEngine.HandleTimed(0x80, false, false, 1100, out launchActions), "launch up fires");
+        Equal(1, launchActions.Length, "launch emits one action");
+        Equal(KeyActionKind.Launch, launchActions[0].Action, "launch action kind");
+        Equal("C:\\Tools\\cmux.exe --flag", launchActions[0].Command, "launch action command");
+
+        // ===== serialize roundtrip =====
+        string line = KeyMapConfig.FormatLine(launchBindings[0]);
+        var again = KeyMapConfig.ParseLines(new[] { line });
+        Equal(1, again.Count, "roundtrip count");
+        Equal(KeyActionKind.Launch, again[0].ClickAction, "roundtrip LAUNCH kind");
+        Equal("C:\\Tools\\cmux.exe --flag", again[0].ClickCommand, "roundtrip LAUNCH command");
+
+        bool enabledFlag;
+        Equal(true, KeyMapConfig.TryParseEnabled(new[] { "# mapping-enabled: 0" }, out enabledFlag), "parse enabled comment");
+        Equal(false, enabledFlag, "enabled=0");
+
+        KeyMapper.Replace(launchBindings);
+        KeyMapper.Enabled = false;
+        MappedKeyEvent[] offActions;
+        Equal(false, KeyMapper.Handle(0x80, true, false, 1000, out offActions), "disabled mapper ignores");
+        KeyMapper.Enabled = true;
+        Equal(true, KeyMapper.Handle(0x80, true, false, 2000, out offActions), "enabled mapper handles");
+        KeyMapper.Handle(0x80, false, false, 2100, out offActions);
+
+        var defaults = RemoteCatalog.DefaultBindings();
+        Equal(12, defaults.Count, "default catalog size");
+        Equal(6, new KeyMapEngine(defaults).BindingCount, "default active binding count");
+
+        string tmp = Path.Combine(Path.GetTempPath(), "keymap-roundtrip.json");
+        KeyMapConfig.WriteJsonFile(tmp, launchBindings, true);
+        bool roundEnabled;
+        var round = KeyMapConfig.ReadJsonFile(tmp, out roundEnabled);
+        Equal(true, roundEnabled, "json roundtrip enabled");
+        Equal(KeyActionKind.Launch, round[0].ClickAction, "json roundtrip LAUNCH");
+        Equal("C:\\Tools\\cmux.exe --flag", round[0].ClickCommand, "json roundtrip command");
+        Equal(KeyActionKind.Cmd, round[1].LongAction, "json roundtrip CMD hold");
 
         if (failures != 0) Environment.Exit(1);
         Console.WriteLine("PASS keymap parse and event behavior");

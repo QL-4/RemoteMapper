@@ -14,7 +14,7 @@
 语音键 -> F20（驱动把 HID F5 改成 F20，物理键盘 F5 不受影响）
 ```
 
-驱动源码、安装和回滚说明见 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。`RemoteMic.exe` 启动时读取 `keymap.txt`，提供全局源键→组合键映射。当前配置：电源短按→Alt+Tab、长按→Task View；返回短按→Ctrl+Z、长按→Ctrl+Shift+Z；主页短按→Alt+X、长按→Alt+F4；音量加→Backspace；音量减→Delete；菜单不映射；直播→Esc。四个方向键保持原行为。
+驱动源码、安装和回滚说明见 [`driver/MiRemoteHidFilter/README.md`](driver/MiRemoteHidFilter/README.md)。`RemoteMic.exe` 启动时读取 `keymap.json`，并在托盘提供按键映射面板：双击托盘图标即可改单击 / 双击 / 长按，保存后立即生效。若只有旧的 `keymap.txt`，启动时会自动迁移成 JSON。当前默认：电源短按→Alt+Tab、长按→Task View；返回短按→Ctrl+Z、长按→Ctrl+Shift+Z；主页短按→Alt+X、长按→Alt+F4；音量加→Backspace；音量减→Delete；菜单不映射；直播→Esc。方向键和确定键保持原行为，语音键固定用于说话。
 
 ---
 
@@ -47,7 +47,8 @@
 
 ### A. 后台常驻（推荐，无窗口）
 - **双击 `start.vbs`** —— 无窗口后台启动，日志写入 `RemoteMic.log`
-- 停止：双击 `stop.bat`（或 `taskkill /F /IM RemoteMic.exe`）
+- 停止：托盘图标右键「退出」，或双击 `stop.bat`（或 `taskkill /F /IM RemoteMic.exe`）
+- 按键映射：双击托盘图标会打开独立窗口（Edge 应用模式）里的按键页；改完立即写回 `keymap.json` 并热加载。需要旁边的 `ui\keymap.html` 和 `ui\remote.png`。
 - 开机自启：双击 `install-autostart.bat`（卸载用 `uninstall-autostart.bat`）
 - 程序已在跑时再启动会提示，不会重复开第二个
 
@@ -112,13 +113,24 @@
 
 ## 五、全局按键映射
 
-`keymap.txt` 每行格式：
+`keymap.json` 用键表描述单击 / 双击 / 长按 / 连发：
 
-```text
-<键名> = <源 VK> -> <目标组合>
+```json
+{
+  "enabled": true,
+  "keys": [
+    {
+      "id": "power",
+      "name": "电源键",
+      "vk": "0x82",
+      "click": { "kind": "combo", "tap": true, "keys": "LALT+TAB" },
+      "hold": { "kind": "taskview", "ms": 600 }
+    }
+  ]
+}
 ```
 
-目标组合使用 `+` 连接，例如 `LCTRL+Z`、`LALT+TAB`。留空表示不映射；目标只有一个键且与源 VK 相同也会自动放行。配置在 RemoteMic 启动时加载，修改后需重启 RemoteMic。
+`kind` 可以是 `combo`、`taskview`、`launch`、`cmd`、`code`。组合键用 `+` 连接，例如 `LCTRL+Z`。`code` 是一段 C# 表达式，运行后把返回的字符串输入进去，例如 `DateTime.Now.ToString("HH:mm")`。推荐用托盘里的按键面板改映射；保存后立即热加载。
 
 默认映射会在源键按住期间保持目标组合。`TAP` 表示等源键抬起后原子点按一次；`HOLD` 可配置长按阈值：
 
@@ -195,6 +207,10 @@ tools\KeySniffer.exe
 | 文件 | 说明 |
 |------|------|
 | `src\RemoteMic.cs` | 主程序源码 |
+| `src\KeyMapPanel.cs` / `src\RemoteCatalog.cs` | 托盘 + 本地按键页服务 |
+| `ui\keymap.html` | 按键映射前端（仅这一页） |
+| `ui\remote.png` | 面板中间的遥控器图 |
+| `ui\app.ico` | 程序与托盘图标 |
 | `src\KeySniffer.cs` → `tools\KeySniffer.exe` | 诊断：全局键盘钩子，抓取所有按键事件 |
 | `src\DefDev.cs` → `tools\DefDev.exe` | 诊断：列出/切换默认录音设备 |
 | `src\CaptureCable.cs` → `tools\CaptureCable.exe` | 诊断：录制 CABLE Output 验证音频回路 |
@@ -205,7 +221,7 @@ tools\KeySniffer.exe
 |------|------|
 | `NOTES.md` | 完整技术笔记（协议逆向、排错历程） |
 | `driver/MiRemoteHidFilter/` | F13–F19 设备专用键的 KMDF lower filter、测试签名包与安装/回滚脚本 |
-| `keymap.txt` | 全局按键映射配置；RemoteMic 启动时读取 |
+| `keymap.json` | 全局按键映射配置；启动时读取，面板保存后热加载 |
 | `tools/HidCaps.*` | 只读 HID descriptor/preparsed metadata 验证工具 |
 | `tools/RemoteKeyTest.*` | 方向上 + F13–F19 八键验收工具 |
 | `_archive/` | 开发过程中的离线研究源码（归档，日常不用） |

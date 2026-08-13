@@ -1,6 +1,8 @@
-# RemoteMapper keymap config  (updated 2026-08-11)
-# RemoteMic.exe 启动时读取本文件；修改后需重启 RemoteMic 才会生效。
+# RemoteMapper keymap config  (updated 2026-08-13)
+# mapping-enabled: 1
+# RemoteMic 启动时读取本文件；控制面板保存后立即热加载，无需重启。
 # 驱动把可配置遥控器键变成 F13-F19，再由本文件决定目标快捷键；语音键另改为保留的 F20，由 VoiceKeyBlocker 直接吞掉，不进入本配置。
+# 方向键和确定键保持系统原行为，不要写成组合键映射源。
 #
 # 完整 HID 映射 (Android getevent 抓取, 全部 Usage Page 0x0007 键盘页):
 #   电源键   HID 0x066 -> 驱动改为 HID F19 -> VK 0x82 (VK_F19)
@@ -29,6 +31,8 @@
 #   HOLD <毫秒> -> <动作>    长按: 按住达到毫秒后立即触发一次 (与 REPEAT 互斥)
 #   REPEAT <延迟> <间隔> -> <动作>  连发: 延迟后开始，每隔间隔重复触发 (与 HOLD 互斥)
 #   TASKVIEW = 通过 Explorer Shell 打开任务视图，不注入 Win 键。
+#   LAUNCH <路径> [参数]   启动程序
+#   CMD <命令>             交给 cmd.exe /c 执行
 # 组合示例:
 #   菜单键 = 0x80 -> TAP X | DOUBLE 300 -> TAP Y | HOLD 550 -> TAP Z
 #   音量加 = 0x7C -> TAP BACK | REPEAT 350 100 -> TAP BACK
@@ -41,15 +45,15 @@
 #   HOME  END  PGUP  PGDN  LEFT  UP  RIGHT  DOWN  MENU  PRTSCR
 # 特殊: ALT+TAB (任务切换, 注入会弹出切换器, 放开 Alt 时切换)
 
-电源键    = 0x82 -> TAP LALT+TAB | HOLD 800 -> TASKVIEW
+电源键    = 0x82 -> TAP LALT+TAB | HOLD 600 -> TASKVIEW
 确定键    = 0x0D ->
 方向上    = 0x26 -> UP
 方向下    = 0x28 -> DOWN
 方向左    = 0x25 -> LEFT
 方向右    = 0x27 -> RIGHT
-返回键    = 0x7E -> LCTRL+Z | HOLD 800 -> LCTRL+LSHIFT+Z
-主页键    = 0x7F -> TAP LALT+X | HOLD 800 -> TAP LALT+F4
-音量加    = 0x7C -> BACK
+返回键    = 0x7E -> TAP LCTRL+Z | HOLD 600 -> TAP LCTRL+LSHIFT+Z
+主页键    = 0x7F -> TAP LALT+X | HOLD 600 -> TAP LALT+F4
+音量加    = 0x7C -> TAP BACK | REPEAT 600 100 -> TAP BACK
 音量减    = 0x7D -> DELETE
 菜单键    = 0x80 ->
 直播键    = 0x81 -> ESC
