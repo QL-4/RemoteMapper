@@ -36,5 +36,8 @@ desktop.ini
 nul
 NUL
 
+# delivery package (build artifact, regenerated on demand)
+dist/
+
 # Pi Agent
 .pi/
