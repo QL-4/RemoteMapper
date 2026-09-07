@@ -133,17 +133,35 @@ class RemoteMic {
 
         // 2. GATT setup (retry: service enumeration can be empty if BLE not ready)
         Console.Write("[2/4] setting up ATVV service...");
-        GattDeviceServicesResult svcRes = null;
+        GattDeviceService svc = null;
+        GattCharacteristic cmd = null, chAud = null, chCtl = null;
         for (int attempt = 0; attempt < 5; attempt++) {
-            svcRes = await AsT(device.GetGattServicesAsync(BluetoothCacheMode.Uncached));
-            if (svcRes.Services.Any(s => s.Uuid == SVC)) break;
+            var svcRes = await AsT(device.GetGattServicesAsync(BluetoothCacheMode.Uncached));
+            svc = svcRes.Services.FirstOrDefault(s => s.Uuid == SVC);
+            if (svc != null) {
+                var chRes = await AsT(svc.GetCharacteristicsAsync(BluetoothCacheMode.Uncached));
+                cmd = chRes.Characteristics.FirstOrDefault(c => c.Uuid == C_CMD);
+                chAud = chRes.Characteristics.FirstOrDefault(c => c.Uuid == C_AUD);
+                chCtl = chRes.Characteristics.FirstOrDefault(c => c.Uuid == C_CTL);
+                if (cmd != null && chAud != null && chCtl != null) break;
+            }
+            Console.Write(" retry " + (attempt + 1) + "/5...");
             await Task.Delay(1000);
         }
-        var svc = svcRes.Services.First(s => s.Uuid == SVC);
-        var chRes = await AsT(svc.GetCharacteristicsAsync(BluetoothCacheMode.Uncached));
-        chCmd = chRes.Characteristics.First(c => c.Uuid == C_CMD);
-        var chAud = chRes.Characteristics.First(c => c.Uuid == C_AUD);
-        var chCtl = chRes.Characteristics.First(c => c.Uuid == C_CTL);
+        if (svc == null) {
+            Console.WriteLine(" ATVV service NOT FOUND");
+            Console.WriteLine(">> The remote is paired but its voice (ATVV) service is not exposed.");
+            Console.WriteLine(">> Try: keep the remote awake (press a key), then remove it from");
+            Console.WriteLine("   Windows Bluetooth settings and pair again, and re-run.");
+            return;
+        }
+        if (cmd == null || chAud == null || chCtl == null) {
+            Console.WriteLine(" ATVV characteristics NOT FOUND");
+            Console.WriteLine(">> The ATVV service was found but is incomplete (stale GATT cache).");
+            Console.WriteLine(">> Try: re-pair the remote in Windows Bluetooth settings, then re-run.");
+            return;
+        }
+        chCmd = cmd;
         HookEvent(chCtl, MakeCtlHandler());
         HookEvent(chAud, MakeAudioHandler());
         await AsT(chCtl.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify));
