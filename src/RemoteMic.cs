@@ -176,6 +176,7 @@ class RemoteMic {
         KeyMapper.Load("keymap.json");
         StartKeyWorker();
         F5Blocker.Start();
+        KeyMapUi.Start();
         if (DeviceSwitch.FindCable())
             Console.WriteLine("[DEV] CABLE Output found as device; will auto-switch default capture while talking");
         else
@@ -367,15 +368,20 @@ class RemoteMic {
         // graceful Ctrl+C
         Console.CancelKeyPress += (o, ea) => {
             ea.Cancel = true;
-            Console.WriteLine("\nExiting...");
-            try { KeySim.ReleaseCombo(); } catch { }
-            if (streamer != null) streamer.Stop();
-            try { DeviceSwitch.Restore(); } catch { }
-            try { F5Blocker.Stop(); } catch { }
-            Environment.Exit(0);
+            RequestExit();
         };
         try { Run().GetAwaiter().GetResult(); }
         catch (Exception ex) { Console.WriteLine("FATAL: " + ex); Console.ReadLine(); }
+    }
+
+    public static void RequestExit() {
+        Console.WriteLine("\nExiting...");
+        try { KeySim.ReleaseCombo(); } catch { }
+        if (streamer != null) streamer.Stop();
+        try { DeviceSwitch.Restore(); } catch { }
+        try { F5Blocker.Stop(); } catch { }
+        try { KeyMapUi.Stop(); } catch { }
+        Environment.Exit(0);
     }
 }
 

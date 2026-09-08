@@ -95,7 +95,11 @@ public static class KeyMapper {
     public static void SaveAndReload(IList<KeyBinding> bindings, bool mappingEnabled) {
         string path;
         lock (gate) path = configPath;
-        KeyMapConfig.WriteFile(path, bindings, mappingEnabled);
+        // 面板不编辑语音热键，保存时要带上当前值，否则会被重置成默认。
+        if (path != null && path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            KeyMapConfig.WriteJsonFile(path, bindings, mappingEnabled, voiceHotkey);
+        else
+            KeyMapConfig.WriteFile(path, bindings, mappingEnabled);
         enabled = mappingEnabled;
         Console.WriteLine("[KEYMAP] saved " + bindings.Count + " line(s) -> " + Path.GetFullPath(path));
         Load(path);

@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteMic</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="icon" href="/app.png" type="image/png" sizes="256x256">
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --card: #fff;
+    --slot: #eef0f3;
+    --line: #d7dbe2;
+    --text: #16181d;
+    --mute: #8b9099;
+    --accent: #2563eb;
+    --accent-soft: #e8effc;
+    --wire: #c5cad3;
+    --shadow: 0 6px 20px rgba(22, 24, 29, .06);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+  }
+  .app {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: 48px minmax(0, 1fr);
+    padding: 0 20px 12px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -.03em;
+  }
+  .device {
+    margin-left: auto;
+    background: #eef5ff;
+    border: 1px solid #cfe0ff;
+    color: #1e4ec7;
+    border-radius: 12px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .device .dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
+  .stage {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: start;
+    min-height: 0;
+    overflow: hidden;
+    gap: 0 8px;
+  }
+  .wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+  .col {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+    z-index: 2;
+  }
+  .card {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--card);
+    border-radius: 14px;
+    padding: 10px 12px 12px;
+    box-shadow: var(--shadow);
+    border: 1.5px solid transparent;
+  }
+  .card.active { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow); }
+  .card.off { opacity: .55; }
+  .card.off .note {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--mute);
+    background: var(--slot);
+    border-radius: 11px;
+    padding: 8px 10px;
+  }
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 650;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+  .card h3 .tag {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--mute);
+    background: var(--slot);
+    border-radius: 999px;
+    padding: 1px 8px;
+  }
+  .slots {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    flex: 1;
+    min-height: 0;
+  }
+  .slot {
+    background: var(--slot);
+    border: 0;
+    border-radius: 10px;
+    min-height: 0;
+    height: 100%;
+    padding: 8px 10px;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .slot:disabled { cursor: default; }
+  .slot:not(:disabled):hover { background: #e4e7ec; }
+  .slot small { display: block; color: var(--mute); font-size: 11px; margin-bottom: 1px; }
+  .slot b {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .slot.empty b { color: var(--mute); font-weight: 500; }
+  .rep {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 999px;
+    padding: 0 5px;
+  }
+  .remote-wrap {
+    position: relative;
+    z-index: 2;
+    flex: none;
+    overflow: hidden;
+  }
+  .remote-photo {
+    position: absolute;
+    inset: 0;
+  }
+  .remote-photo img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: top center;
+    pointer-events: none;
+    user-select: none;
+  }
+  .hit {
+    position: absolute;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .hit:hover { background: rgba(37, 99, 235, .14); }
+  .modal {
+    position: fixed; inset: 0; background: rgba(16,18,22,.28);
+    display: none; align-items: center; justify-content: center; z-index: 20;
+  }
+  .modal.show { display: flex; }
+  .sheet {
+    width: 420px; background: #fff; border-radius: 18px;
+    padding: 22px; box-shadow: 0 24px 60px rgba(0,0,0,.18);
+  }
+  .sheet h2 { margin: 0 0 14px; font-size: 16px; }
+  .choices { display: grid; gap: 8px; }
+  .choices button, .ok {
+    border: 1px solid var(--line); background: #fff; border-radius: 11px;
+    padding: 11px 12px; text-align: left; font: inherit; cursor: pointer;
+  }
+  .choices button:hover, .ok:hover { background: var(--accent-soft); border-color: #bdd0fb; }
+  .choices .danger:hover { background: #fff1f1; border-color: #f0c2c2; }
+  .hint {
+    margin-top: 14px; padding: 16px; text-align: center;
+    background: var(--slot); border-radius: 12px; color: var(--mute);
+  }
+  .field { display: flex; gap: 8px; margin-top: 12px; }
+  .field input {
+    flex: 1; border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; font: inherit;
+  }
+  .hold-opt {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 12px; font-size: 13px;
+  }
+  .hold-opt input { accent-color: var(--accent); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>按键映射</h1>
+    <div class="device"><span class="dot"></span>小米遥控器 2 Pro</div>
+  </header>
+  <div class="stage" id="stage">
+    <svg class="wires" id="wires"></svg>
+    <div class="col" id="left"></div>
+    <div class="remote-wrap">
+      <div class="remote-photo" id="photo">
+        <img src="/remote.png" alt="小米蓝牙遥控器 2 Pro" id="remoteImg">
+        <button class="hit" data-key="power" title="电源"></button>
+        <button class="hit" data-key="voice" title="语音"></button>
+        <button class="hit" data-key="back" title="返回（无驱动模式不可用）" disabled></button>
+        <button class="hit" data-key="volup" title="音量+（无驱动模式不可用）" disabled></button>
+        <button class="hit" data-key="home" title="主页"></button>
+        <button class="hit" data-key="voldown" title="音量-（无驱动模式不可用）" disabled></button>
+        <button class="hit" data-key="menu" title="菜单"></button>
+        <button class="hit" data-key="tv" title="TV"></button>
+      </div>
+    </div>
+    <div class="col" id="right"></div>
+  </div>
+</div>
+<div class="modal" id="modal">
+  <div class="sheet">
+    <h2 id="modalTitle">编辑</h2>
+    <div class="choices" id="choices">
+      <button data-act="record">录制快捷键</button>
+      <button data-act="launch">启动程序…</button>
+      <button data-act="cmd">运行命令…</button>
+      <button data-act="taskview">任务视图</button>
+      <button data-act="code">运行代码…</button>
+      <button data-act="clear" class="danger">清除</button>
+    </div>
+    <label class="hold-opt hidden" id="repeatOpt"><input type="checkbox" id="repeatBox"> 长按连发</label>
+    <div class="hint hidden" id="recordHint">请按下目标快捷键<br>松开完成 · Esc 取消</div>
+    <div class="field hidden" id="cmdField">
+      <input id="cmdInput" placeholder="例如 start ms-settings:network">
+      <button class="ok" id="cmdOk">确定</button>
+    </div>
+    <input id="recInput" autocomplete="off" spellcheck="false" style="position:fixed;left:-99px;top:0;width:1px;height:1px;opacity:0;border:0;padding:0">
+  </div>
+</div>
+<script>
+const LEFT = ["power", "back", "home", "menu"];
+const RIGHT = ["voice", "volup", "voldown", "tv"];
+const ICONS = {
+  power: "⏻", back: "↩", home: "⌂", menu: "☰",
+  voice: "🎙️", volup: "♪+", voldown: "♪−", tv: "▣"
+};
+// 无驱动模式下，这三个键被 Windows 键盘驱动丢弃，程序收不到，无法映射。
+const UNAVAILABLE = { back: "返回键", volup: "音量 +", voldown: "音量 -" };
+
+function fallbackKey(id) {
+  if (UNAVAILABLE[id]) return { id: id, title: UNAVAILABLE[id], mode: "unavailable" };
+  return { id: id, title: id, mode: id === "voice" ? "voice" : "editable" };
+}
+
+let state = { enabled: true, keys: [] };
+let selected = "power";
+let editing = null;
+let rec = { on: false, held: [], combo: [] };
+
+const $ = id => document.getElementById(id);
+const keyOf = id => state.keys.find(k => k.id === id);
+function slotLabel(s) { return !s || s.kind === "empty" ? "未设置" : (s.label || "未设置"); }
+
+function cardHtml(k) {
+  const icon = ICONS[k.id] || "";
+  if (k.mode === "unavailable") {
+    return `<article class="card off" data-key="${k.id}">
+      <h3>${icon} ${k.title}<span class="tag">不可用</span></h3>
+      <div class="note">无驱动模式下被 Windows 键盘驱动丢弃，程序收不到，无法映射</div>
+    </article>`;
+  }
+  if (k.mode === "voice") {
+    return `<article class="card" data-key="voice">
+      <h3>${icon} ${k.title}<span class="tag">固定</span></h3>
+      <div class="slots">
+        <button class="slot empty" disabled><small>单击</small><b>按住说话</b></button>
+        <button class="slot empty" disabled><small>双击</small><b>未设置</b></button>
+        <button class="slot empty" disabled><small>长按</small><b>未设置</b></button>
+      </div>
+    </article>`;
+  }
+  const holdTag = k.repeat ? '<span class="rep">连发</span>' : "";
+  const mk = (slot, kind) => {
+    const empty = !slot || slot.kind === "empty";
+    const name = kind === "click" ? "单击" : kind === "dbl" ? "双击" : "长按";
+    return `<button class="slot ${empty?"empty":""}" data-slot="${kind}"><small>${name}${kind==="hold"?holdTag:""}</small><b>${slotLabel(slot)}</b></button>`;
+  };
+  return `<article class="card" data-key="${k.id}">
+    <h3>${icon} ${k.title}</h3>
+    <div class="slots">${mk(k.click,"click")}${mk(k.dbl,"dbl")}${mk(k.hold,"hold")}</div>
+  </article>`;
+}
+
+function render() {
+  $("left").innerHTML = LEFT.map(id => cardHtml(keyOf(id) || fallbackKey(id))).join("");
+  $("right").innerHTML = RIGHT.map(id => cardHtml(keyOf(id) || fallbackKey(id))).join("");
+  document.querySelectorAll(".card").forEach(el => {
+    el.classList.toggle("active", el.dataset.key === selected);
+    el.addEventListener("click", () => select(el.dataset.key));
+  });
+  document.querySelectorAll(".slot[data-slot]").forEach(btn => {
+    btn.addEventListener("click", ev => {
+      ev.stopPropagation();
+      openEditor(btn.closest(".card").dataset.key, btn.dataset.slot);
+    });
+  });
+  layoutToImage();
+  requestAnimationFrame(drawWires);
+}
+
+const HITS = {
+  power:   { x: 0.3508, y: 0.0855, s: 0.1332 },
+  voice:   { x: 0.6492, y: 0.0855, s: 0.1332 },
+  back:    { x: 0.3796, y: 0.4006, s: 0.1909 },
+  volup:   { x: 0.6204, y: 0.3976, s: 0.1909, sh: 0.1776 },
+  home:    { x: 0.3796, y: 0.4938, s: 0.1909 },
+  voldown: { x: 0.6204, y: 0.4970, s: 0.1909, sh: 0.1776 },
+  menu:    { x: 0.3796, y: 0.5875, s: 0.1909 },
+  tv:      { x: 0.6204, y: 0.5875, s: 0.1909 }
+};
+
+function layoutToImage() {
+  const img = $("remoteImg");
+  const photo = $("photo");
+  const wrap = photo && photo.parentElement;
+  const stage = $("stage");
+  if (!img || !stage || !photo || !wrap || !img.naturalWidth) return;
+  const sr = stage.getBoundingClientRect();
+  if (sr.height < 8) return;
+
+  const aspect = img.naturalWidth / img.naturalHeight;
+  const h = sr.height;
+  const w = h * aspect;
+  wrap.style.width = Math.round(w) + "px";
+  wrap.style.height = Math.round(h) + "px";
+
+  const ir = img.getBoundingClientRect();
+  const pr = photo.getBoundingClientRect();
+  if (ir.height < 8) return;
+
+  document.querySelectorAll(".hit").forEach(el => {
+    const p = HITS[el.dataset.key];
+    if (!p) return;
+    const sizeW = ir.width * p.s;
+    const sizeH = ir.width * (p.sh || p.s);
+    el.style.left = (ir.left - pr.left + p.x * ir.width - sizeW / 2) + "px";
+    el.style.top = (ir.top - pr.top + p.y * ir.height - sizeH / 2) + "px";
+    el.style.width = sizeW + "px";
+    el.style.height = sizeH + "px";
+  });
+
+  const top = Math.max(0, Math.round(ir.top - sr.top));
+  document.querySelectorAll(".col").forEach(col => {
+    col.style.marginTop = top + "px";
+    col.style.height = Math.round(ir.height) + "px";
+  });
+}
+
+function select(id) {
+  selected = id;
+  document.querySelectorAll(".card").forEach(el => el.classList.toggle("active", el.dataset.key === id));
+  drawWires();
+}
+
+function drawWires() {
+  const stage = $("stage");
+  const svg = $("wires");
+  const sr = stage.getBoundingClientRect();
+  svg.setAttribute("viewBox", "0 0 " + sr.width + " " + sr.height);
+  svg.innerHTML = "";
+  LEFT.concat(RIGHT).forEach(id => {
+    const card = stage.querySelector('.card[data-key="' + id + '"]');
+    const hit = document.querySelector('.hit[data-key="' + id + '"]');
+    if (!card || !hit) return;
+    const cr = card.getBoundingClientRect();
+    const hr = hit.getBoundingClientRect();
+    const leftSide = LEFT.indexOf(id) >= 0;
+    const x1 = (leftSide ? cr.right : cr.left) - sr.left;
+    const x2 = hr.left + hr.width / 2 - sr.left;
+    const y2 = hr.top + hr.height / 2 - sr.top;
+    const yMin = cr.top - sr.top + 10;
+    const yMax = cr.bottom - sr.top - 10;
+    const y1 = Math.max(yMin, Math.min(yMax, y2));
+    const dx = Math.max(36, Math.abs(x2 - x1) * 0.45);
+    const c1 = leftSide ? x1 + dx : x1 - dx;
+    const c2 = leftSide ? x2 - dx : x2 + dx;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M" + x1 + "," + y1 + " C" + c1 + "," + y1 + " " + c2 + "," + y2 + " " + x2 + "," + y2);
+    path.setAttribute("fill", "none");
+    const on = id === selected;
+    path.setAttribute("stroke", on ? "#2563eb" : "#c5cad3");
+    path.setAttribute("stroke-width", on ? "1.8" : "1.15");
+    svg.appendChild(path);
+  });
+}
+
+async function load() {
+  const res = await fetch("/api/state");
+  state = await res.json();
+  state.enabled = true;
+  render();
+  select(selected);
+}
+async function save() {
+  state.enabled = true;
+  try {
+    const res = await fetch("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(state)
+    });
+    if (!res.ok) throw new Error(await res.text());
+    state = await res.json();
+    state.enabled = true;
+    render();
+    select(selected);
+  } catch (err) {
+    alert("保存失败：" + err);
+  }
+}
+
+document.querySelectorAll(".hit").forEach(el => {
+  el.addEventListener("click", () => {
+    select(el.dataset.key);
+    const k = keyOf(el.dataset.key);
+    if (k && k.mode === "editable") openEditor(k.id, "click");
+  });
+});
+function relayout() { layoutToImage(); drawWires(); }
+window.addEventListener("resize", relayout);
+$("remoteImg").addEventListener("load", relayout);
+if (window.ResizeObserver) {
+  const ro = new ResizeObserver(relayout);
+  ro.observe($("stage"));
+  ro.observe($("remoteImg"));
+}
+
+function openEditor(id, slot) {
+  const k = keyOf(id);
+  if (!k || k.mode !== "editable") return;
+  select(id);
+  editing = { id, slot };
+  $("modalTitle").textContent = k.title + " · " + (slot === "click" ? "单击" : slot === "dbl" ? "双击" : "长按");
+  $("choices").classList.remove("hidden");
+  $("recordHint").classList.add("hidden");
+  $("cmdField").classList.add("hidden");
+  $("repeatOpt").classList.toggle("hidden", slot !== "hold");
+  $("repeatBox").checked = !!k.repeat;
+  rec.on = false;
+  $("modal").classList.add("show");
+}
+function closeModal() {
+  rec.on = false;
+  $("modal").classList.remove("show");
+}
+$("modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
+$("repeatBox").addEventListener("change", () => {
+  const k = editing && keyOf(editing.id);
+  if (!k) return;
+  k.repeat = $("repeatBox").checked;
+  save();
+});
+
+function setSlot(kind, extra) {
+  const k = keyOf(editing.id);
+  const slot = { kind, combo: "", command: "", label: "未设置" };
+  if (kind === "combo") {
+    slot.combo = extra;
+    slot.label = extra.replace(/LCTRL/g,"Ctrl").replace(/RCTRL/g,"RCtrl").replace(/LALT/g,"Alt").replace(/RALT/g,"RAlt").replace(/LSHIFT/g,"Shift").replace(/LWIN/g,"Win").replace(/OEM_COMMA/g,",");
+  }
+  if (kind === "taskview") slot.label = "任务视图";
+  if (kind === "code") { slot.command = extra; slot.label = "代码"; }
+  if (kind === "launch") { slot.command = extra; slot.label = "打开 " + (extra.split(/[\\/]/).pop() || extra).replace(/\.[^.]+$/, ""); }
+  if (kind === "cmd") { slot.command = extra; slot.label = extra; }
+  if (kind === "empty") { slot.kind = "empty"; slot.label = "未设置"; }
+  k[editing.slot] = slot;
+  closeModal();
+  save();
+}
+
+$("choices").addEventListener("click", async e => {
+  const act = e.target.getAttribute("data-act");
+  if (!act) return;
+  if (act === "clear") return setSlot("empty");
+  if (act === "taskview") return setSlot("taskview");
+  if (act === "code") {
+    $("choices").classList.add("hidden");
+    $("cmdField").classList.remove("hidden");
+    $("cmdInput").value = "DateTime.Now.ToString(\"HH:mm\")";
+    $("cmdInput").placeholder = "C# 表达式，返回要输入的文本";
+    $("cmdInput").dataset.kind = "code";
+    $("cmdInput").focus();
+    return;
+  }
+  if (act === "record") {
+    $("choices").classList.add("hidden");
+    $("recordHint").classList.remove("hidden");
+    rec = { on: true, held: [], combo: [] };
+    setTimeout(function() { $("recInput").focus(); }, 0);
+    return;
+  }
+  if (act === "launch") {
+    const r = await fetch("/api/pick-exe", { method: "POST" });
+    const j = await r.json();
+    if (!j.path) return;
+    const args = prompt("启动参数（可留空）", "") || "";
+    setSlot("launch", args.trim() ? '"' + j.path + '" ' + args.trim() : j.path);
+    return;
+  }
+  if (act === "cmd") {
+    $("choices").classList.add("hidden");
+    $("cmdField").classList.remove("hidden");
+    $("cmdInput").value = "";
+    $("cmdInput").placeholder = "例如 start ms-settings:network";
+    $("cmdInput").dataset.kind = "cmd";
+    $("cmdInput").focus();
+  }
+});
+$("cmdOk").addEventListener("click", () => {
+  const v = $("cmdInput").value.trim();
+  if (!v) return;
+  setSlot($("cmdInput").dataset.kind === "code" ? "code" : "cmd", v);
+});
+
+const CODE = {
+  Backspace:"BACK", Enter:"ENTER", Escape:"ESC", Space:"SPACE", Tab:"TAB",
+  Delete:"DELETE", Insert:"INSERT", Home:"HOME", End:"END",
+  PageUp:"PGUP", PageDown:"PGDN", ArrowLeft:"LEFT", ArrowUp:"UP",
+  ArrowRight:"RIGHT", ArrowDown:"DOWN", Comma:"OEM_COMMA", Period:"OEM_PERIOD",
+  Minus:"OEM_MINUS", Equal:"OEM_PLUS", Slash:"OEM_2", Backquote:"OEM_3",
+  BracketLeft:"OEM_4", Backslash:"OEM_5", BracketRight:"OEM_6", Semicolon:"OEM_1",
+  Quote:"OEM_7"
+};
+function isModCode(code) {
+  return /^(Control|Alt|Shift|Meta)(Left|Right)?$/.test(code || "");
+}
+function mainKeyFromEvent(ev) {
+  const code = ev.code || "";
+  if (isModCode(code)) return "";
+  if (CODE[code]) return CODE[code];
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+  if (/^Numpad([0-9])$/.test(code)) return code.slice(6);
+  const kc = ev.keyCode || ev.which || 0;
+  if (kc >= 65 && kc <= 90) return String.fromCharCode(kc);
+  if (kc >= 112 && kc <= 135) return "F" + (kc - 111);
+  if (kc === 188) return "OEM_COMMA";
+  if (kc === 190) return "OEM_PERIOD";
+  if (kc === 191) return "OEM_2";
+  if (kc === 186) return "OEM_1";
+  if (kc === 187) return "OEM_PLUS";
+  if (kc === 189) return "OEM_MINUS";
+  if (kc === 192) return "OEM_3";
+  if (kc === 219) return "OEM_4";
+  if (kc === 220) return "OEM_5";
+  if (kc === 221) return "OEM_6";
+  if (kc === 222) return "OEM_7";
+  return "";
+}
+function modsFromEvent(ev) {
+  const mods = [];
+  if (ev.ctrlKey) mods.push("LCTRL");
+  if (ev.altKey) mods.push("LALT");
+  if (ev.shiftKey) mods.push("LSHIFT");
+  if (ev.metaKey) mods.push("LWIN");
+  return mods;
+}
+function onRecDown(ev) {
+  if (!rec.on) {
+    if (ev.key === "Escape" && $("modal").classList.contains("show")) closeModal();
+    return;
+  }
+  ev.preventDefault();
+  ev.stopPropagation();
+  if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+  if (ev.key === "Escape" || ev.code === "Escape") { closeModal(); return; }
+  if (ev.repeat) return;
+  const mods = modsFromEvent(ev);
+  if (mods.length) rec.held = mods.slice();
+  const main = mainKeyFromEvent(ev);
+  if (!main) {
+    rec.combo = rec.held.slice();
+    $("recordHint").innerHTML = (rec.held.join(" + ") || "…") + "<br>再按主键完成 · Esc 取消";
+    return;
+  }
+  rec.combo = rec.held.concat([main]);
+  finishRecord();
+}
+function onRecUp(ev) {
+  if (!rec.on) return;
+  ev.preventDefault();
+  const main = mainKeyFromEvent(ev);
+  if (!main) return;
+  const mods = rec.held.length ? rec.held.slice() : modsFromEvent(ev);
+  rec.combo = mods.concat([main]);
+  finishRecord();
+}
+function finishRecord() {
+  if (!rec.on || !rec.combo.length) return;
+  rec.on = false;
+  setSlot("combo", rec.combo.join("+"));
+}
+window.addEventListener("keydown", onRecDown, true);
+window.addEventListener("keyup", onRecUp, true);
+
+load().catch(err => { document.body.innerHTML = "<p style='padding:40px'>无法连接映射服务：" + err + "</p>"; });
+</script>
+</body>
+</html>
