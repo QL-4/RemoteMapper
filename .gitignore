@@ -27,6 +27,9 @@ captures/
 *.wav
 *.bin
 
+# user keymap config (auto-generated on first run)
+keymap.json
+
 # editor / OS
 .vscode/
 .idea/
