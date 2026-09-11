@@ -1,84 +1,62 @@
-# 小米蓝牙语音遥控器 → 微信输入法语音录入
+# RemoteMapper（免驱动版）
 
-> 📌 **要在其他电脑上部署？** 请看 [`DEPLOY.md`](DEPLOY.md)（新机器从零部署指南）。
+把小米蓝牙语音遥控器变成 Windows 的**语音输入话筒**和**可编程遥控器**。
 
-把小米蓝牙语音遥控器的语音键变成微信输入法（WeType）的语音输入按钮：
-**按住遥控器语音键** → 自动唤起微信输入法语音录入 + 把遥控器麦克风的音频送进去；
-**松开** → 结束录入，恢复系统原默认麦克风。
+按住遥控器语音键 → 微信输入法语音录入自动弹出，遥控器麦克风的声音实时送进去；松开 → 结束录入并恢复原来的默认麦克风。其余按键可以在可视化面板里改成任意快捷键。
 
----
-
-## 一、前置准备（只需做一次）
-
-### 1. 安装 VB-Cable（虚拟音频线）
-- 下载安装 [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)（免费）
-- 安装后系统会多出一对虚拟音频设备：
-  - `CABLE Input`（播放端）
-  - `CABLE Output`（录音端）
-- **不要**手动修改系统默认录音设备 —— 程序会在使用时自动切换
-
-### 2. 安装微信输入法
-- 安装 [微信输入法（WeType）](https://z.weixin.qq.com/)
-- 在微信输入法设置里，开启**语音输入**功能
-- 在设置里查看**语音输入**的快捷键是什么（后续会填进 `keymap.json` 的 `voice.hotkey`）
-
-### 3. 配对遥控器
-- 设置 → 蓝牙 → 添加「小米蓝牙语音遥控器」并配对
-- 配对后遥控器会同时作为 **BLE 设备**（语音数据）和 **HID 键盘**（按键）连接
-
-### 4. 放行程序
-- 如果被杀毒软件/Windows Defender 拦截，请放行 `RemoteMic.exe`
+**这个分支不需要安装任何驱动**，也不用开测试签名：解压、双击、能用。需要完整按键（返回、音量 ±）和按键来源隔离的话，用 [`main`](../../tree/main) 分支。
 
 ---
 
-## 二、启动
+## 能做什么
 
-两种入口，按需选用：
+- **语音直通** —— 解码蓝牙 BLE ATVV 协议里的 IMA ADPCM 音频，经 VB-Cable 实时送进输入法，延迟无感
+- **用完即还** —— 只在按住语音键期间临时切换默认录音设备，松开立刻恢复，平时开会录音不受影响
+- **可视化按键映射** —— 托盘双击打开映射面板，单击 / 双击 / 长按 / 连发四种手势，保存即热加载
+- **动作不止快捷键** —— 组合键、任务视图、启动程序、执行命令，甚至跑一段 C# 表达式把结果输入到光标处
+- **换输入法也能用** —— 语音热键可配，填谁的快捷键就唤起谁
 
-### A. 后台常驻（推荐，无窗口）
-- **双击 `start.vbs`** —— 无窗口后台启动，日志写入 `RemoteMic.log`
-- 停止：双击 `stop.bat`（或 `taskkill /F /IM RemoteMic.exe`）
-- 开机自启：双击 `install-autostart.bat`（卸载用 `uninstall-autostart.bat`）
-- 程序已在跑时再启动会提示，不会重复开第二个
+---
 
-### B. 前台窗口（调试用，看实时输出）
-- **双击 `debug.bat`**（前台调试看实时输出），或直接运行 `RemoteMic.exe`；`Ctrl+C` 退出
+## 快速开始
 
-看到以下提示即表示就绪：
+1. **装 [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)**（免费），装完系统会多出 `CABLE Input` / `CABLE Output` 一对虚拟设备，不用手动改默认录音设备。
+2. **装 [微信输入法](https://z.weixin.qq.com/)**，在设置里开启语音输入的「按住说话」，并把它的快捷键设成和程序的语音热键一致（如 `右 Alt + 逗号`）。
+3. **配对遥控器**：设置 → 蓝牙 → 添加「小米蓝牙语音遥控器」。配对后它同时是 BLE 设备（语音）和 HID 键盘（按键）。
+4. **双击 `start.vbs`** 后台常驻，日志写进 `RemoteMic.log`；想看实时输出就用 `debug.bat`。
 
-```
+要把它交付到别人的电脑上，见 [`DEPLOY.md`](DEPLOY.md)。
+
+看到这几行就绪即可使用：
+
+```text
 == RemoteMic: remote mic -> CABLE + WeChat IME hotkey ==
 [1/4] connecting to remote... OK (MI RC)
 [2/4] setting up ATVV service... OK
 [3/4] opening VB-Cable Input... OK
-[KEYMAP] generated default config: keymap.json (all mappings disabled)
 [KEYMAP] voice hotkey: RALT+OEM_COMMA
-[F5] blocker + key mapper hook installed
-[DEV] CABLE Output found as device; will auto-switch default capture while talking
 [4/4] ATVV handshake... ready
 >> HOLD the voice button to talk. Release to stop.
 ```
 
-现在就可以用了：
-1. 把光标点进任意**文本框**（聊天框、记事本、Word 等）
-2. **按住**遥控器语音键，正常说话
-3. 微信输入法弹出语音录入，转写文字输入到光标处
-4. **松开**语音键结束
+把光标点进任意文本框，按住语音键说话，松开结束。
 
-按 **Ctrl + C** 退出程序。
+退出：托盘图标右键「退出」，或双击 `stop.bat`。开机自启：`install-autostart.bat`（卸载用 `uninstall-autostart.bat`）。
 
 ---
 
-## 二B、按键映射（可选）
+## 按键映射
 
-除了语音功能，遥控器的其他键也可以映射为快捷键。编辑 `keymap.json`（首次运行自动生成）即可。
+双击托盘图标打开映射面板，点按键卡片改单击 / 双击 / 长按的动作，保存后写回 `keymap.json` 并立即生效。
 
-**可用键：** 电源/确定/方向×4/主页/菜单/直播（共 9 个）
-**不可用键：** 返回/音量±（被 Windows `kbdhid.sys` 丢弃，无法映射）
+![按键映射面板](ui/panel-screenshot.png)
 
-> ⚠️ **重要限制**：低级键盘钩子无法区分按键来源设备。如果你把「主页键」映射了快捷键，**物理键盘按 Home 也会触发**。请只映射你不常在物理键盘上用的键。
+免驱动模式下的两点取舍：
 
-`keymap.json` 示例（默认全关，按需开启）：
+- **返回、音量 ±** 走的是 HID Keyboard Page 的 `0x80/0x81/0xF1` usage，`kbdhid.sys` 不会为它们生成按键事件，面板里显示为灰色，装上 `main` 分支的 filter 驱动才能用。
+- **低级键盘钩子分不清按键来源**。映射了主页键，物理键盘上的 `Home` 也会跟着触发；挑那些你在键盘上基本不按的键来映射就好。出厂配置全部关闭（`enabled: false`），按需打开。
+
+方向键和确定键不在面板里（默认保持原行为），需要的话可以在 `keymap.json` 里直接配：
 
 ```json
 {
@@ -88,134 +66,91 @@
     {
       "id": "power", "name": "电源键", "vk": "0xFF",
       "click": { "kind": "combo", "tap": true, "keys": "LALT+TAB" },
-      "hold": { "kind": "taskview", "tap": true, "ms": 600 }
+      "hold":  { "kind": "taskview", "tap": true, "ms": 600 }
     },
     { "id": "tv", "name": "直播键", "vk": "0xC0",
-      "click": { "kind": "combo", "tap": true, "keys": "ESC" }
-    }
+      "click": { "kind": "combo", "tap": true, "keys": "ESC" } }
   ]
 }
 ```
 
-**每个键支持 4 种手势：**
+| 手势字段 | 触发条件 |
+|---|---|
+| `click` | 按下并松开 |
+| `dbl` | 快速按两次（`ms` 为间隔上限，默认 300） |
+| `hold` | 按住超过 `ms` 毫秒（默认 600） |
+| `repeat` | 按住后每 `interval` 毫秒重复一次（配 `delay`） |
 
-| 手势 | 字段 | 说明 |
-|------|------|------|
-| 单击 | `click` | 按下/松开后触发 |
-| 双击 | `dbl` | 快速按两次；需配 `ms`（双击间隔，默认 300） |
-| 长按 | `hold` | 按住超过 `ms` 毫秒触发（默认 600） |
-| 重复 | `repeat` | 按住后每 `interval` 毫秒重复（需配 `delay`+`interval`） |
+| `kind` | 作用 | 额外字段 |
+|---|---|---|
+| `combo` | 发送组合键 | `keys`，如 `LCTRL+SHIFT+Z` |
+| `taskview` | 打开任务视图 | — |
+| `launch` | 启动程序 | `command` |
+| `cmd` | 执行命令 | `command` |
+| `code` | 运行 C# 表达式并输入返回值 | `command`，如 `DateTime.Now.ToString("HH:mm")` |
 
-**动作类型（`kind`）：**
-
-| kind | 说明 | 额外字段 |
-|------|------|----------|
-| `combo` | 快捷键组合 | `keys`: 键名用 `+` 连接，如 `LCTRL+Z` |
-| `taskview` | 打开任务视图 | 无 |
-| `launch` | 启动程序 | `command`: 程序路径 |
-| `cmd` | 执行命令 | `command`: 命令字符串 |
-| `code` | C# 代码片段→输入结果 | `command`: C# 表达式 |
-
-**语音热键（`voice.hotkey`）：** 控制按住语音键时注入什么快捷键来唤起语音输入法。请填入你所用输入法的语音输入快捷键（程序初始默认 `RALT+OEM_COMMA`，即右 Alt + 逗号，以微信输入法为例）。换了输入法或快捷键就在这里改。
+`voice.hotkey` 决定按住语音键时注入哪个快捷键，换输入法或改了快捷键就改这里。
 
 ---
 
-## 三、工作原理
+## 工作原理
 
-```
+```text
 按住语音键 ──┬─> BLE 通知 CTL「按下」
-             │     ├─ 默认录音设备切换 → CABLE Output（让微信输入法能录到）
-             │     ├─ 注入热键（`voice.hotkey`）按下 → 微信输入法弹出
-             │     └─ 开始把遥控器音频解码后推送到 CABLE Input
+             │     ├─ 默认录音设备切到 CABLE Output（让输入法录得到）
+             │     ├─ 注入 voice.hotkey 按下 → 输入法弹出
+             │     └─ 解码遥控器音频并推流到 CABLE Input
              │
-             └─> HID 同时发出 F5 → 被 F5Blocker 钩子吞掉（不干扰）
+             └─> HID 同时发出 F5 → 被键盘钩子吞掉，不干扰
 
-松开语音键 ──┬─> BLE 通知 CTL「松开」
-             │     ├─ 停止推流
-             │     ├─ 注入热键释放 → 微信输入法结束录入
-             │     └─ 默认录音设备恢复 → 你的原麦克风
+松开语音键 ──┬─> 停止推流 → 释放热键 → 恢复原默认录音设备
 ```
 
-**核心要点：**
-- 遥控器音频通过蓝牙 BLE 的 ATVV 协议传输（IMA ADPCM 编码），程序实时解码后通过 VB-Cable 虚拟线送给微信输入法
-- 程序内部拦截了遥控器语音键会发出的 **F5** 键盘事件（它会污染热键组合），触发信号完全走 BLE 通道，不受影响
-- **只在按住遥控器时**临时切换默认录音设备，松开后立即恢复，平时用别的麦克风完全不受影响
+触发信号完全走 BLE 通道，不依赖那颗会污染热键组合的 F5。全局映射走同一个低级键盘钩子，程序自己注入的事件会被忽略，不会递归。
 
 ---
 
-## 四、注意事项
+## 环境变量
 
-- ⚠️ **遥控器需保持唤醒**：遥控器闲置会休眠，按任意键唤醒后再用语音键
-- ⚠️ 一次只能连一个程序。退出 RemoteMic 后遥控器语音键才回到普通 F5 功能
-- 💡 普通用户权限即可运行，无需管理员；后台用 `start.vbs`，调试用 `debug.bat`
-- 💡 全局键钩子靠内部消息泵线程工作，窗口是否可见不影响功能；后台运行同样可用
+| 变量 | 作用 |
+|---|---|
+| `REMOTEMIC_HOTKEY=0` | 关闭热键注入（纯音频测试） |
+| `REMOTEMIC_DUMP=1` | 松开时把解码音频存成 `rt_dump_HHmmss.wav` |
+| `REMOTEMIC_KEYDIAG=1` | 注入时打印前台窗口信息 |
 
----
+## 故障排查
 
-## 五、故障排查
+| 现象 | 处理 |
+|---|---|
+| `remote NOT FOUND` | 遥控器休眠了，按几个键唤醒再启动 |
+| `ATVV service NOT FOUND` | Windows 缓存了旧的 GATT 表：在蓝牙设置里删除该遥控器并重新配对 |
+| 输入法不弹出 | 先用物理键盘按 `voice.hotkey` 里配的那个热键试；能弹说明是程序侧，重启 RemoteMic |
+| 转写不出文字 | `tools\CaptureCable.exe` 录 3 秒，确认 CABLE 回路有声音 |
+| 想知道遥控器发了什么键 | `tools\KeySniffer.exe` |
 
-| 现象 | 排查 |
-|------|------|
-| 程序提示 remote NOT FOUND | 遥控器未连接/已休眠，按几个键唤醒它再启动 |
-| 微信输入法不弹出 | 先用物理键盘按**你在 `voice.hotkey` 里配的热键**测试：若手动也不行则是输入法设置问题；若手动能弹但遥控器不行，重启 RemoteMic |
-| 弹出但转写不出文字/无反应 | 运行 `tools\CaptureCable.exe` 录制 3 秒检查 CABLE 回路是否有声音 |
-| 转写的声音很小 | 正常，AGC 已自动增益；如仍太小可对着遥控器麦克风口说话 |
-| 想看遥控器发了什么键 | 运行 `tools\KeySniffer.exe`，按遥控器看输出 |
+## 项目结构
 
-**诊断命令：**
-```bash
-# 列出当前录音设备 + 默认设备
-tools\DefDev.exe list
-
-# 验证 CABLE 音频回路（录 3 秒）
-tools\CaptureCable.exe
-
-# 抓取所有键盘事件（看遥控器/注入发了什么）
-tools\KeySniffer.exe
-```
-
----
-
-## 六、环境变量（可选，默认无需设置）
-
-| 变量 | 作用 | 默认 |
-|------|------|------|
-| `REMOTEMIC_HOTKEY=0` | 关闭热键注入（纯音频测试用） | 开启 |
-| `REMOTEMIC_DUMP=1` | 松开时把解码音频存为 `rt_dump_HHmmss.wav` | 关闭 |
-| `REMOTEMIC_KEYDIAG=1` | 注入时打印前台窗口信息 | 关闭 |
-
----
-
-## 七、文件说明
-
-| 文件 | 说明 |
-|------|------|
-运行入口（根目录）：
-| 文件 | 说明 |
-|------|------|
-| `RemoteMic.exe` | **主程序**（BLE 连接 + 解码 + 推流 + 热键 + 设备切换）；源码 `src\RemoteMic.cs` |
-| `start.vbs` | **后台启动器**（无窗口常驻，日志写 `RemoteMic.log`） |
-| `stop.bat` | 停止后台 RemoteMic |
-| `install-autostart.bat` / `uninstall-autostart.bat` | 安装/卸载开机自启 |
-| `debug.bat` | 前台启动脚本（调试看实时输出） |
-
-源码（`src\`）与诊断工具（`tools\`）：
-| 文件 | 说明 |
-|------|------|
-| `src\RemoteMic.cs` | 主程序源码 |
-| `src\KeyMapEngine.cs` / `KeyMapConfig.cs` / `KeyMapper.cs` | 按键映射引擎（JSON 配置 + 手势识别 + 热键注入） |
-| `src\KeyComboSender.cs` / `KeySnippet.cs` / `RemoteCatalog.cs` | 映射引擎辅助类 |
-| `src\KeySniffer.cs` → `tools\KeySniffer.exe` | 诊断：全局键盘钩子，抓取所有按键事件 |
-| `src\DefDev.cs` → `tools\DefDev.exe` | 诊断：列出/切换默认录音设备 |
-| `src\CaptureCable.cs` → `tools\CaptureCable.exe` | 诊断：录制 CABLE Output 验证音频回路 |
-
-文档与归档：
-| 文件 | 说明 |
-|------|------|
-| `NOTES.md` | 完整技术笔记（协议逆向、排错历程） |
-| `_archive/` | 开发过程中的离线研究源码（归档，日常不用） |
+| 路径 | 说明 |
+|---|---|
+| `src\RemoteMic.cs` | 主程序：BLE 连接、音频解码推流、热键注入、设备切换 |
+| `src\KeyMap*.cs`、`src\KeyComboSender.cs`、`src\KeySnippet.cs` | 按键映射引擎与托盘面板服务 |
+| `ui\keymap.html`、`ui\remote.png`、`ui\app.ico` | 映射面板前端与图标 |
+| `tools\` | KeySniffer / DefDev / CaptureCable 等诊断工具 |
+| `NOTES.md` | 协议逆向与排错过程的完整技术笔记 |
+| `_archive\` | 开发期的离线研究代码 |
 
 ### 重新编译
-需要 .NET Framework 4.8（系统自带 csc.exe）。双击 `build.bat` 即可，或编译命令见 `NOTES.md` 末尾。
 
-`keymap.json` 在 `.gitignore` 中，首次运行自动生成。
+需要 .NET Framework 4.8（系统自带 `csc.exe`）：
+
+```bat
+build.bat
+```
+
+`keymap.json` 不入库，首次运行自动生成。
+
+---
+
+## 许可证
+
+[MIT](LICENSE)
